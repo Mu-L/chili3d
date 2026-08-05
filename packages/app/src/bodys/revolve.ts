@@ -7,10 +7,12 @@ import {
     type IShape,
     type Line,
     ParameterShapeNode,
-    type Result,
+    Result,
+    ShapeTypes,
     serializable,
     serialize,
 } from "@chili3d/core";
+import { closedProfileToFace } from "./extrude";
 
 export interface RevolveOptions {
     document: IDocument;
@@ -57,6 +59,15 @@ export class RevolvedNode extends ParameterShapeNode {
     }
 
     override generateShape(): Result<IShape> {
+        if (
+            (this.profile.shapeType === ShapeTypes.wire || this.profile.shapeType === ShapeTypes.edge) &&
+            this.profile.isClosed()
+        ) {
+            // Revolving a closed profile (wire or circle edge) as a face produces a solid instead of a shell.
+            const face = closedProfileToFace(this.profile);
+            if (!face.isOk) return Result.err(face.error);
+            return shapeFactory.revolve(face.value, this.axis, this.angle);
+        }
         return shapeFactory.revolve(this.profile, this.axis, this.angle);
     }
 }

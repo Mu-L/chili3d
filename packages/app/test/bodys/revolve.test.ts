@@ -1,12 +1,17 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import type { IDocument } from "@chili3d/core";
+import type { IDocument, IShape } from "@chili3d/core";
 import { Line, Result, XYZ } from "@chili3d/core";
 import { createMockDocument } from "@chili3d/core/test-utils";
 import { beforeEach, describe, expect, rs, test } from "@rstest/core";
 import { RevolvedNode } from "../../src/bodys/revolve";
-import { createMockShape, setupShapeFactoryMock, setupSimpleShapeFactoryMock } from "./_utils";
+import {
+    createMockShape,
+    createMockWire,
+    setupShapeFactoryMock,
+    setupSimpleShapeFactoryMock,
+} from "./_utils";
 
 describe("RevolvedNode", () => {
     let doc: IDocument;
@@ -132,6 +137,34 @@ describe("RevolvedNode", () => {
             const node = new RevolvedNode({ document: doc, profile, axis, angle: 180 });
             const result = node.generateShape();
             expect(result.isOk).toBe(false);
+        });
+
+        test("should convert closed wire to face and revolve the face to produce a solid", () => {
+            const closedWire = Object.assign(createMockWire(), { isClosed: () => true });
+            const faceShape = createMockShape();
+            const face = rs.fn((_wires: any[]) => Result.ok(faceShape as any));
+            const revolve = rs.fn((_shape: IShape, _axis: Line, _angle: number) =>
+                Result.ok(createMockShape() as any),
+            );
+            setupShapeFactoryMock({ face, revolve });
+            const node = new RevolvedNode({ document: doc, profile: closedWire, axis, angle: 180 });
+            const result = node.generateShape();
+            expect(face).toHaveBeenCalledWith([closedWire]);
+            expect(revolve).toHaveBeenCalledTimes(1);
+            expect(revolve.mock.calls[0][0]).toBe(faceShape);
+            expect(result.isOk).toBe(true);
+        });
+
+        test("should return Result.err when face creation fails for closed wire", () => {
+            const closedWire = Object.assign(createMockWire(), { isClosed: () => true });
+            const revolve = rs.fn((_shape: IShape, _axis: Line, _angle: number) =>
+                Result.ok(createMockShape() as any),
+            );
+            setupShapeFactoryMock({ face: () => Result.err("face creation failed"), revolve });
+            const node = new RevolvedNode({ document: doc, profile: closedWire, axis, angle: 180 });
+            const result = node.generateShape();
+            expect(result.isOk).toBe(false);
+            expect(revolve).not.toHaveBeenCalled();
         });
     });
 });
