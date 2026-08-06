@@ -306,7 +306,12 @@ export class CommandContext extends HTMLElement implements IDisposable {
         }
 
         const document = this.command.document;
-        const material = document.modelManager.materials.find((x) => x.id === noType[g.name])!;
+        const material =
+            document.modelManager.materials.find((x) => x.id === noType[g.name])! ??
+            document.modelManager.materials.at(0);
+        if (!material) {
+            throw new Error("No material");
+        }
         const display = material.clone();
 
         return button({
