@@ -24,7 +24,7 @@ import {
 } from "@chili3d/core";
 import { FaceNode } from "../../bodys/face";
 import { WireNode } from "../../bodys/wire";
-import { RepairShapeCommand, repairShape } from "../modify";
+import { repairShape } from "../modify";
 
 abstract class ConvertCommand extends CancelableCommand {
     async executeAsync(): Promise<void> {
@@ -90,7 +90,16 @@ abstract class ConvertCommand extends CancelableCommand {
 })
 export class ConvertToWire extends ConvertCommand {
     protected override create(document: IDocument, models: ShapeNode[]): Result<GeometryNode> {
-        const edges = models.map((x) => x.shape.value.transformedMul(x.worldTransform())) as IEdge[];
+        const edges = models
+            .map((x) => x.shape.value.transformedMul(x.worldTransform()))
+            .flatMap((s) => {
+                if (s.shapeType === ShapeTypes.edge) {
+                    return [s];
+                } else if (s.shapeType === ShapeTypes.wire) {
+                    return s.findSubShapes(ShapeTypes.edge);
+                }
+                return [];
+            }) as IEdge[];
         const wireBody = new WireNode({ document, edges });
         const shape = wireBody.generateShape();
         if (!shape.isOk) return Result.err(shape.error);

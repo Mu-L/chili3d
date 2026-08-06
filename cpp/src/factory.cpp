@@ -63,6 +63,7 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Iterator.hxx>
 #include <TopoDS_Shape.hxx>
+#include <deque>
 #include <gp_Ax2.hxx>
 #include <gp_Circ.hxx>
 
@@ -568,38 +569,46 @@ public:
         gp_Pnt last;
     };
 
-    // Returns the unused edge that continues the chain within confusion tolerance (and
-    // whether it connects backwards), or ends.size() when nothing connects.
+    // Returns the unused edge whose endpoint is nearest to either chain end within confusion
+    // tolerance, or ends.size() when nothing connects. `prepend` selects the chain end to
+    // extend, `reversed` tells whether the edge must be flipped to continue the chain.
     static size_t nextChainEdge(
-        const std::vector<EdgeEndpoints>& ends, const std::vector<bool>& used, const gp_Pnt& chainEnd, bool& reversed)
+        const std::vector<EdgeEndpoints>& ends,
+        const std::vector<bool>& used,
+        const gp_Pnt& front,
+        const gp_Pnt& back,
+        bool& prepend,
+        bool& reversed)
     {
         size_t next = ends.size();
-        double best = Precision::Confusion();
-        for (size_t i = 1; i < ends.size(); i++) {
+        double best = Precision::Confusion() * Precision::Confusion();
+        for (size_t i = 0; i < ends.size(); i++) {
             if (used[i]) {
                 continue;
             }
-            double dFirst = chainEnd.Distance(ends[i].first);
-            double dLast = chainEnd.Distance(ends[i].last);
-            if (dFirst < best) {
-                best = dFirst;
-                next = i;
-                reversed = false;
-            }
-            if (dLast < best) {
-                best = dLast;
-                next = i;
-                reversed = true;
-            }
+            auto tryCandidate = [&](double squareDistance, bool candidatePrepend, bool candidateReversed) {
+                if (squareDistance < best) {
+                    best = squareDistance;
+                    next = i;
+                    prepend = candidatePrepend;
+                    reversed = candidateReversed;
+                }
+            };
+            tryCandidate(back.SquareDistance(ends[i].first), false, false);
+            tryCandidate(back.SquareDistance(ends[i].last), false, true);
+            tryCandidate(front.SquareDistance(ends[i].last), true, false);
+            tryCandidate(front.SquareDistance(ends[i].first), true, true);
         }
         return next;
     }
 
-    // Chains edges into a wire deterministically: from the first edge, repeatedly append the
-    // unused edge whose endpoint is nearest to the chain end, reversing it when it connects
-    // backwards. ShapeAnalysis_WireOrder was dropped: with near-coincident endpoints (e.g.
-    // edges from an offset curve) it could assign a wrong orientation, twisting the wire.
-    static bool orderEdge(BRepBuilderAPI_MakeWire& wire, const std::vector<TopoDS_Edge>& edges)
+    // Chains edges into a wire deterministically: start from the first edge, then repeatedly
+    // extend the chain at whichever end has the nearest connecting edge, reversing edges
+    // that connect backwards. Extending at both ends is required because the first edge may
+    // sit anywhere along the geometric chain. ShapeAnalysis_WireOrder was dropped: with
+    // near-coincident endpoints (e.g. edges from an offset curve) it could assign a wrong
+    // orientation, twisting the wire.
+    static bool orderEdge(const std::vector<TopoDS_Edge>& edges, std::vector<TopoDS_Edge>& ordered)
     {
         ShapeAnalysis_Edge analysis;
         std::vector<EdgeEndpoints> ends;
@@ -611,23 +620,35 @@ public:
 
         std::vector<bool> used(edges.size(), false);
         used[0] = true;
-        wire.Add(edges[0]);
-        gp_Pnt chainEnd = ends[0].last;
+        std::deque<std::pair<size_t, bool>> chain; // (edge index, reversed)
+        chain.emplace_back(0, false);
+        gp_Pnt front = ends[0].first;
+        gp_Pnt back = ends[0].last;
 
         for (size_t count = 1; count < edges.size(); count++) {
+            bool prepend = false;
             bool reversed = false;
-            size_t next = nextChainEdge(ends, used, chainEnd, reversed);
+            size_t next = nextChainEdge(ends, used, front, back, prepend, reversed);
             if (next == edges.size()) {
                 return false; // remaining edges are disconnected from the chain
             }
+            if (prepend) {
+                chain.emplace_front(next, reversed);
+                front = reversed ? ends[next].last : ends[next].first;
+            } else {
+                chain.emplace_back(next, reversed);
+                back = reversed ? ends[next].first : ends[next].last;
+            }
+            used[next] = true;
+        }
 
-            TopoDS_Edge edge = edges[next];
-            chainEnd = reversed ? ends[next].first : ends[next].last;
+        ordered.reserve(edges.size());
+        for (const auto& [index, reversed] : chain) {
+            TopoDS_Edge edge = edges[index];
             if (reversed) {
                 edge.Reverse();
             }
-            wire.Add(edge);
-            used[next] = true;
+            ordered.push_back(edge);
         }
         return true;
     }
@@ -651,8 +672,14 @@ public:
         BRepBuilderAPI_MakeWire wire;
         if (copies.size() == 1) {
             wire.Add(copies[0]);
-        } else if (!orderEdge(wire, copies)) {
-            return ShapeResult { TopoDS_Shape(), false, mapBuildWireError(BRepBuilderAPI_DisconnectedWire) };
+        } else {
+            std::vector<TopoDS_Edge> ordered;
+            if (!orderEdge(copies, ordered)) {
+                return ShapeResult { TopoDS_Shape(), false, mapBuildWireError(BRepBuilderAPI_DisconnectedWire) };
+            }
+            for (const auto& edge : ordered) {
+                wire.Add(edge);
+            }
         }
 
         if (!wire.IsDone()) {

@@ -1,6 +1,8 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
     type IEdge,
     type IFace,
@@ -8,6 +10,7 @@ import {
     type IVertex,
     type IWire,
     Line,
+    Matrix4,
     Plane,
     ShapeTypes,
     XYZ,
@@ -17,7 +20,7 @@ import { MockShape } from "@chili3d/core/test-utils";
 import type { ShapeFactory } from "../src/factory";
 import type { OccEdge, OccFace, OccSolid } from "../src/shape";
 import { OccCylindricalSurface, OccPlane } from "../src/surface";
-import { createTestFactory, surfaceOfFace, unwrapOk } from "./helpers";
+import { createTestConverter, createTestFactory, surfaceOfFace, unwrapOk } from "./helpers";
 import "./setup";
 
 let factory: ShapeFactory;
@@ -197,6 +200,78 @@ describe("ShapeFactory — curves & wires", () => {
             const e2 = factory.line(new XYZ({ x: 20, y: 0, z: 0 }), new XYZ({ x: 30, y: 0, z: 0 })).value;
             const result = factory.wire([e1, e2]);
             expect(result.isOk).toBe(false);
+        });
+
+        test("should create a wire from edges extracted from another wire", () => {
+            const e1 = unwrapOk(factory.line(XYZ.zero, new XYZ({ x: 10, y: 0, z: 0 })));
+            const e2 = unwrapOk(
+                factory.line(new XYZ({ x: 10, y: 0, z: 0 }), new XYZ({ x: 10, y: 10, z: 0 })),
+            );
+            const e3 = unwrapOk(
+                factory.line(new XYZ({ x: 10, y: 10, z: 0 }), new XYZ({ x: 20, y: 10, z: 0 })),
+            );
+
+            const wire12 = unwrapOk(factory.wire([e1, e2]));
+            expect(wire12.shapeType).toBe(ShapeTypes.wire);
+
+            const edges = wire12.findSubShapes(ShapeTypes.edge) as IEdge[];
+            expect(edges.length).toBe(2);
+
+            const wire123 = factory.wire([...edges, e3]);
+            expect(wire123.isOk).toBe(true);
+            expect(wire123.value.shapeType).toBe(ShapeTypes.wire);
+            expect(wire123.value.findSubShapes(ShapeTypes.edge).length).toBe(3);
+        });
+
+        test("should not corrupt input edges on repeated wire calls", () => {
+            // BRepBuilderAPI_MakeWire shares/reverses the vertices of the added edges in
+            // place; wire() must build from copies so the same edges can be reused (e.g.
+            // convert-to-wire, undo, convert again).
+            const e1 = unwrapOk(factory.line(XYZ.zero, new XYZ({ x: 10, y: 0, z: 0 })));
+            const e2 = unwrapOk(
+                factory.line(new XYZ({ x: 10, y: 0, z: 0 }), new XYZ({ x: 10, y: 10, z: 0 })),
+            );
+
+            const w1 = factory.wire([e1, e2]);
+            expect(w1.isOk).toBe(true);
+
+            const w2 = factory.wire([e1, e2]);
+            expect(w2.isOk).toBe(true);
+            expect(w2.value.shapeType).toBe(ShapeTypes.wire);
+        });
+
+        test("should not corrupt transformed edges on repeated wire calls", () => {
+            // ConvertToWire passes `shape.transformedMul(worldTransform)` results to wire().
+            const e1 = unwrapOk(factory.line(XYZ.zero, new XYZ({ x: 10, y: 0, z: 0 })));
+            const e2 = unwrapOk(
+                factory.line(new XYZ({ x: 10, y: 0, z: 0 }), new XYZ({ x: 10, y: 10, z: 0 })),
+            );
+
+            const w1 = factory.wire([
+                e1.transformedMul(Matrix4.identity()) as IEdge,
+                e2.transformedMul(Matrix4.identity()) as IEdge,
+            ]);
+            expect(w1.isOk).toBe(true);
+
+            const w2 = factory.wire([
+                e1.transformedMul(Matrix4.identity()) as IEdge,
+                e2.transformedMul(Matrix4.identity()) as IEdge,
+            ]);
+            expect(w2.isOk).toBe(true);
+        });
+
+        test("should chain edges connected at the start of the first edge (edgeWire.brep)", () => {
+            // The compound lists the edges as [top, bottom, vertical]; the geometric chain
+            // is bottom -> vertical -> top, so the first edge only connects at its START.
+            const brep = readFileSync(path.resolve(import.meta.dirname, "models", "edgeWire.brep"), "utf-8");
+            const shape = unwrapOk(createTestConverter().convertFromBrep(brep));
+            const edges = shape.findSubShapes(ShapeTypes.edge) as IEdge[];
+            expect(edges.length).toBe(3);
+
+            const wire = factory.wire(edges);
+            expect(wire.isOk).toBe(true);
+            expect(wire.value.shapeType).toBe(ShapeTypes.wire);
+            expect(wire.value.findSubShapes(ShapeTypes.edge).length).toBe(3);
         });
     });
 
