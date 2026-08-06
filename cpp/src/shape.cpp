@@ -455,6 +455,18 @@ public:
     static PointAndParameterArray intersect(const TopoDS_Edge& edge, const TopoDS_Edge& otherEdge)
     {
         std::vector<PointAndParameter> points;
+        if (edge.IsNull() || otherEdge.IsNull() || BRep_Tool::Degenerated(edge)
+            || BRep_Tool::Degenerated(otherEdge)) {
+            return PointAndParameterArray(val::array(points));
+        }
+
+        double start1(0.0), end1(0.0), start2(0.0), end2(0.0);
+        Handle(Geom_Curve) curve1 = BRep_Tool::Curve(edge, start1, end1);
+        Handle(Geom_Curve) curve2 = BRep_Tool::Curve(otherEdge, start2, end2);
+        if (curve1.IsNull() || curve2.IsNull()) {
+            return PointAndParameterArray(val::array(points));
+        }
+
         BRepExtrema_ExtCC cc(edge, otherEdge);
         if (cc.IsDone() && cc.NbExt() > 0 && !cc.IsParallel()) {
             for (int i = 1; i <= cc.NbExt(); i++) {
