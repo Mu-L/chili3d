@@ -1,20 +1,29 @@
 // Part of the Chili3d Project, under the AGPL-3.0 License.
 // See LICENSE file in the project root for full license information.
 
-import type { IDocument, IEdge, IWire } from "@chili3d/core";
-import { Result, XYZ } from "@chili3d/core";
+import type { IDocument, IEdge, IWire, ShapeType } from "@chili3d/core";
+import { Result, ShapeTypes, XYZ } from "@chili3d/core";
 import { createMockDocument, createMockEdgeCurve } from "@chili3d/core/test-utils";
 import { beforeEach, describe, expect, rs, test } from "@rstest/core";
 import { FaceNode } from "../../src/bodys/face";
 import { createMockEdge, createMockShape, createMockWire, setupShapeFactoryMock } from "./_utils";
 
-function mockLineEdge(x1: number, y1: number, x2: number, y2: number) {
+function mockLineEdge(x1: number, y1: number, x2: number, y2: number): IEdge {
     return createMockEdge({
         curve: createMockEdgeCurve({
             start: new XYZ({ x: x1, y: y1, z: 0 }),
             end: new XYZ({ x: x2, y: y2, z: 0 }),
             valueFn: (t: number) => new XYZ({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t, z: 0 }),
         }),
+    }) as unknown as IEdge;
+}
+
+// FaceNode uses closed wires directly, so the wire mocks in these tests must report
+// isClosed() = true and expose their edges (the shared createMockWire() is unclosed).
+function mockClosedWire(...edges: IEdge[]) {
+    return Object.assign(createMockWire(), {
+        isClosed: () => true,
+        findSubShapes: (type: ShapeType) => (type === ShapeTypes.edge ? edges : []),
     });
 }
 
@@ -84,7 +93,7 @@ describe("FaceNode", () => {
             const node = new FaceNode({ document: doc, shapes: [createMockEdge()] as any });
             const handler = rs.fn((_property: string) => {});
             node.onPropertyChanged(handler);
-            node.shapes = [createMockWire()] as any;
+            node.shapes = [mockClosedWire(mockLineEdge(0, 0, 10, 0), mockLineEdge(10, 0, 10, 10))] as any;
             expect(handler.mock.calls.map((c) => c[0])).toContain("shapes");
         });
     });
@@ -151,7 +160,7 @@ describe("FaceNode", () => {
         });
 
         test("should combine wires with grouped edge loops", () => {
-            const existingWire = createMockWire();
+            const existingWire = mockClosedWire(mockLineEdge(0, 0, 100, 0), mockLineEdge(100, 0, 100, 100));
             const wire = rs.fn((_edges: IEdge[]) => Result.ok(createMockWire()));
             const face = rs.fn((_wires: IWire[]) => Result.ok(createMockShape()));
             setupShapeFactoryMock({ wire, face });
@@ -168,7 +177,7 @@ describe("FaceNode", () => {
         });
 
         test("should use wire shapes directly without creating new wire", () => {
-            const mockWire = createMockWire();
+            const mockWire = mockClosedWire(mockLineEdge(0, 0, 10, 0), mockLineEdge(10, 0, 10, 10));
             const face = rs.fn((_wires: IWire[]) => Result.ok(createMockShape()));
             setupShapeFactoryMock({ face });
             const node = new FaceNode({ document: doc, shapes: [mockWire] as any });

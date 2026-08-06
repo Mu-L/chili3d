@@ -46,7 +46,11 @@ export class FaceNode extends ParameterShapeNode {
         const edges: IEdge[] = [];
         for (const shape of this.shapes) {
             if (shape.shapeType === ShapeTypes.wire) {
-                wires.push(shape as IWire);
+                if (shape.isClosed()) {
+                    wires.push(shape as IWire);
+                } else {
+                    edges.push(...(shape.findSubShapes(ShapeTypes.edge) as IEdge[]));
+                }
             } else {
                 edges.push(shape as IEdge);
             }
