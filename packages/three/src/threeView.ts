@@ -540,8 +540,7 @@ export class ThreeView extends Observable implements IView {
     ): ThreeVisualObject[] {
         const result: ThreeVisualObject[] = [];
         this.document.visual.context.visuals().forEach((x) => {
-            if (!x.visible) return;
-            if (!(x instanceof ThreeVisualObject)) return;
+            if (!(x instanceof ThreeVisualObject) || !x.node.visible || !x.node.parentVisible) return;
 
             const node = this.getNodeFromObject(x);
             if (node === undefined) return;
@@ -741,8 +740,8 @@ export class ThreeView extends Observable implements IView {
             const i = subs.findIndex((x) => x.shape.shapeType === ShapeTypes.edge);
             if (i < 0) return subs;
 
-            const nearest = (subs[0].shape as IFace).surface().nearestPoint(subs[i].point!);
-            if (nearest![0].distanceTo(subs[i].point!) < 0.001) {
+            const nearest = (subs[0].shape as IFace).surface().nearestPoint(subs[i].point!) ?? [];
+            if (nearest.length > 0 && nearest[0]!.distanceTo(subs[i].point!) < 0.001) {
                 const v = subs.splice(i, 1);
                 subs.splice(0, 0, ...v);
             }
@@ -906,7 +905,7 @@ export class ThreeView extends Observable implements IView {
         let visuals: Object3D[] = [];
         this.document.visual.context.visuals().forEach((x) => {
             if (!x.visible) return;
-            if (x instanceof ThreeVisualObject) {
+            if (x instanceof ThreeVisualObject && x.node.visible && x.node.parentVisible) {
                 visuals.push(...x.wholeVisual());
             } else if (x instanceof ThreeRefSegmentAnnotation) {
                 visuals.push(...x.wholeVisual());
@@ -925,7 +924,7 @@ export class ThreeView extends Observable implements IView {
     private initIntersectableShapes(shapeType: ShapeType) {
         let shapes: Object3D[] = [];
         this.document.visual.context.visuals().forEach((x) => {
-            if (x instanceof ThreeVisualObject && x.node.visible) {
+            if (x instanceof ThreeVisualObject && x.node.visible && x.node.parentVisible) {
                 shapes.push(...x.subShapeVisual(shapeType));
             }
         });
