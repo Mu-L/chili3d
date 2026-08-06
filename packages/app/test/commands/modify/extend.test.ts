@@ -330,6 +330,21 @@ describe("ExtendCommand", () => {
             }
         });
 
+        test("should move the picked endpoint to the intersection when it cuts an edge", () => {
+            const longX = lineCurve(XYZ.zero, XYZ.unitX, 0, 4); // intersection at x=3 cuts it
+            const { cmd, trims } = buildWireCommand({ curves: [longX, Y_CURVE()] });
+            (cmd as any).stepDatas[0].shapes[0].point = new XYZ({ x: 0.5, y: 0, z: 0 }); // picked near x=0
+
+            const { restore } = captureFactory();
+            try {
+                (cmd as any).executeMainTask();
+                expect(trims[0]).toEqual([[3, 4]]); // the picked (left) endpoint moved to x=3
+                expect(trims[1]).toEqual([[0, 2]]);
+            } finally {
+                restore();
+            }
+        });
+
         test("should report an error for parallel wire edges and keep the node", () => {
             const parallel = lineCurve(new XYZ({ x: 0, y: 5, z: 0 }), XYZ.unitX, 0, 2);
             const { cmd, parent } = buildWireCommand({ curves: [X_CURVE(), parallel] });
@@ -494,6 +509,32 @@ describe("ExtendCommand", () => {
             expect(trims[0].at(-1)![1]).toBeCloseTo(Math.PI);
             expect(trims[1].at(-1)![0]).toBeCloseTo(u);
             expect(trims[1].at(-1)![1]).toBeCloseTo(Math.PI - a);
+        });
+
+        test("should prefer the intersection reached from the picked endpoint", () => {
+            const center = new XYZ({ x: 2, y: 4, z: 0 });
+            // the full circle meets the X axis at x=-1 and x=5; (5,0) is geometrically
+            // nearer, but the line was picked near x=0 - the end that reaches (-1,0)
+            const intersections = [
+                { point: new XYZ({ x: -1, y: 0, z: 0 }), parameter: -1 },
+                { point: new XYZ({ x: 5, y: 0, z: 0 }), parameter: 5 },
+            ];
+            const { cmd, trims } = buildStandaloneCommand({
+                shapes: [
+                    (ctx) => curveEdgeData(ctx.body, X_CURVE(), ctx.trims, ctx.created, { intersections }),
+                    (ctx) =>
+                        curveEdgeData(ctx.body, arcCurve(center, 5, -1.2, 0), ctx.trims, ctx.created, {
+                            curveParameter: circleParameter(center, -1.2),
+                        }),
+                ],
+            });
+            (cmd as any).stepDatas[0].shapes[0].point = new XYZ({ x: 0, y: 0, z: 0 }); // picked near x=0
+
+            (cmd as any).executeMainTask();
+
+            expect(trims[0].at(-1)).toEqual([-1, 1]); // extended towards (-1,0), not the nearer (5,0)
+            expect(trims[1].at(-1)![0]).toBeCloseTo(Math.atan2(-4, -3));
+            expect(trims[1].at(-1)![1]).toBe(0);
         });
 
         test("should report an error when the line and the arc never meet", () => {

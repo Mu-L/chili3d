@@ -80,7 +80,6 @@ function lineIntersection(s1: SupportCurve, s2: SupportCurve): Result<Corner> {
         return Result.err("Edges must be straight lines or arcs");
     }
 
-    // OCCT line directions are unit vectors
     const d1 = s1.curve.direction.normalize()!;
     const d2 = s2.curve.direction.normalize()!;
     const normal = d1.cross(d2);
@@ -154,13 +153,38 @@ function endpointDistance(p: number, point: XYZ, support: SupportCurve): number 
     return point.distanceTo(support.value(p < support.first ? support.first : support.last));
 }
 
+/** The end of the edge nearest to the point where the user picked it. */
+type PickedEnd = "first" | "last" | undefined;
+
+function pickedEnd(support: SupportCurve, point: XYZ | undefined): PickedEnd {
+    if (point === undefined) return undefined;
+    const toFirst = point.distanceTo(support.value(support.first));
+    return toFirst <= point.distanceTo(support.value(support.last)) ? "first" : "last";
+}
+
+/** True when extending the edge's range to p grows the end opposite to the picked one. */
+function extendsAwayFromPick(p: number, support: SupportCurve, end: PickedEnd): boolean {
+    if (end === undefined) return false;
+    if (p < support.first) return end === "last";
+    if (p > support.last) return end === "first";
+    return false;
+}
+
 /**
  * The corner of two support curves of which at least one is a circle, found
  * by intersecting the maximal edges. A line and a circle or two circles can
- * meet twice; the intersection geometrically nearest to the two edges is
- * kept (the same "nearest intersection" rule AutoCAD applies).
+ * meet twice; an intersection reached by extending the picked endpoints is
+ * preferred, and the intersection geometrically nearest to the two edges
+ * breaks the tie (the same "nearest intersection" rule AutoCAD applies).
  */
-function curveIntersection(edge1: IEdge, s1: SupportCurve, edge2: IEdge, s2: SupportCurve): Result<Corner> {
+function curveIntersection(
+    edge1: IEdge,
+    s1: SupportCurve,
+    edge2: IEdge,
+    s2: SupportCurve,
+    end1: PickedEnd,
+    end2: PickedEnd,
+): Result<Corner> {
     const temp1 = maximalEdge(edge1, s1, s2);
     const temp2 = maximalEdge(edge2, s2, s1);
     try {
@@ -174,9 +198,11 @@ function curveIntersection(edge1: IEdge, s1: SupportCurve, edge2: IEdge, s2: Sup
             return Result.err("Edges do not intersect when extended");
         }
 
+        const missed = (c: IntersectionCandidate) =>
+            (extendsAwayFromPick(c.p1, s1, end1) ? 1 : 0) + (extendsAwayFromPick(c.p2, s2, end2) ? 1 : 0);
         const cost = (c: IntersectionCandidate) =>
             endpointDistance(c.p1, c.point, s1) + endpointDistance(c.p2, c.point, s2);
-        candidates.sort((a, b) => cost(a) - cost(b));
+        candidates.sort((a, b) => missed(a) - missed(b) || cost(a) - cost(b));
         return Result.ok(candidates[0]);
     } finally {
         temp1.dispose();
@@ -185,17 +211,18 @@ function curveIntersection(edge1: IEdge, s1: SupportCurve, edge2: IEdge, s2: Sup
 }
 
 /**
- * Rebuild the edge so its range reaches p. When p cuts the edge in two only
- * the longer side is kept; when p lies outside the edge is extended up to p.
- * An arc may never grow to a full circle.
+ * Rebuild the edge so its range reaches p. When p cuts the edge in two the
+ * picked endpoint moves to p, keeping the far side (the longer side without
+ * a pick point); when p lies outside the edge is extended up to p. An arc
+ * may never grow to a full circle.
  */
-function edgeThroughParameter(edge: IEdge, support: SupportCurve, p: number): Result<IEdge> {
+function edgeThroughParameter(edge: IEdge, support: SupportCurve, p: number, end: PickedEnd): Result<IEdge> {
     let [first, last] = [support.first, support.last];
     if (p > first && p < last) {
-        if (p - first >= last - p) {
-            last = p;
-        } else {
+        if (end === "first" || (end === undefined && p - first < last - p)) {
             first = p;
+        } else {
+            last = p;
         }
     } else {
         first = Math.min(first, p);
@@ -208,24 +235,30 @@ function edgeThroughParameter(edge: IEdge, support: SupportCurve, p: number): Re
     return Result.ok(edge.trim(first, last));
 }
 
-/** Extend (or trim) two straight edges or arcs until they meet. */
-function extendEdgesToCorner(edge1: IEdge, edge2: IEdge): Result<[IEdge, IEdge]> {
+/**
+ * Extend (or trim) two straight edges or arcs until they meet. `point1` and
+ * `point2` are the points where the user picked the edges, in the same space
+ * as the edges; they decide which end of an edge is extended or kept.
+ */
+function extendEdgesToCorner(edge1: IEdge, edge2: IEdge, point1?: XYZ, point2?: XYZ): Result<[IEdge, IEdge]> {
     const s1 = supportCurve(edge1);
     const s2 = supportCurve(edge2);
     if (s1 === undefined || s2 === undefined) {
         return Result.err("Edges must be straight lines or arcs");
     }
 
+    const end1 = pickedEnd(s1, point1);
+    const end2 = pickedEnd(s2, point2);
     const corner =
         s1.period === 0 && s2.period === 0
             ? lineIntersection(s1, s2)
-            : curveIntersection(edge1, s1, edge2, s2);
+            : curveIntersection(edge1, s1, edge2, s2, end1, end2);
     if (!corner.isOk) return corner.parse();
 
-    const ext1 = edgeThroughParameter(edge1, s1, corner.value.p1);
+    const ext1 = edgeThroughParameter(edge1, s1, corner.value.p1, end1);
     if (!ext1.isOk) return ext1.parse();
 
-    const ext2 = edgeThroughParameter(edge2, s2, corner.value.p2);
+    const ext2 = edgeThroughParameter(edge2, s2, corner.value.p2, end2);
     if (!ext2.isOk) {
         ext1.value.dispose();
         return ext2.parse();
@@ -248,7 +281,8 @@ function spliceExtendedEdges(allEdges: IEdge[], corner: OrderedCorner, extended:
  * Extend two straight edges or arcs until they meet. The edges can be two
  * standalone edge bodies or two adjacent edges of a wire; each edge is
  * prolonged (or cut back) along its support curve up to the intersection of
- * the two curves.
+ * the two curves. The point where an edge was picked decides which of its
+ * ends moves to the corner when the geometry leaves a choice.
  */
 @command({
     key: "modify.extend",
@@ -291,10 +325,18 @@ export class ExtendCommand extends MultistepCommand {
             return Result.err("Edges must be adjacent edges of the wire.");
         }
 
-        const extended = extendEdgesToCorner(corner.edge1, corner.edge2);
+        // the pick points are in world space, the wire edges in node-local space
+        const [point0, point1] = shapes.map((x) => this.localPickPoint(x));
+        const [point1st, point2nd] = corner.edge1 === shapes[0].shape ? [point0, point1] : [point1, point0];
+        const extended = extendEdgesToCorner(corner.edge1, corner.edge2, point1st, point2nd);
         if (!extended.isOk) return extended.parse();
 
         return shapeFactory.wire(spliceExtendedEdges(allEdges, corner, extended.value));
+    }
+
+    /** The point where the shape was picked, converted from world to node-local space. */
+    private localPickPoint(data: VisualShapeData): XYZ | undefined {
+        return data.point === undefined ? undefined : data.transform.invert()?.ofPoint(data.point);
     }
 
     /** Extend two standalone edge bodies until they meet, keeping them as separate edges. */
@@ -310,7 +352,8 @@ export class ExtendCommand extends MultistepCommand {
             return edge;
         });
 
-        const extended = extendEdgesToCorner(edge1, edge2);
+        // the edges were transformed to world space, so the pick points can be used as-is
+        const extended = extendEdgesToCorner(edge1, edge2, shapes[0].point, shapes[1].point);
         if (!extended.isOk) {
             PubSub.default.pub("displayError", extended.error);
             return;
