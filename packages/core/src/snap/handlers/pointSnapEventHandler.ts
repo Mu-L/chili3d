@@ -3,7 +3,7 @@
 
 import { Config } from "../../config";
 import type { IDocument } from "../../document";
-import type { AsyncController } from "../../foundation";
+import { Precision, type AsyncController } from "../../foundation";
 import type { I18nKeys } from "../../i18n";
 import { type Line, type Plane, XYZ } from "../../math";
 import type { ICurve, ShapeType } from "../../shape";
@@ -146,9 +146,20 @@ export class SnapPointOnAxisEventHandler extends SnapEventHandler<SnapPointOnAxi
     }
 
     protected override getPointFromInput(view: IView, text: string): SnapResult {
-        const parameter = Number(text);
-        const point = this.data.ray.point.add(this.data.ray.direction.multiply(parameter));
+        const dist = this.calculateDistance(Number(text));
+        const point = this.data.ray.point.add(this.data.ray.direction.multiply(dist));
         return { point, view, shapes: [], type: "input" };
+    }
+
+    protected calculateDistance(inputValue: number): number {
+        return this.isSnapedOnNegativeSide() ? -inputValue : inputValue;
+    }
+
+    protected isSnapedOnNegativeSide() {
+        return (
+            this._snaped?.point !== undefined &&
+            this._snaped.point.sub(this.data.ray.point).dot(this.data.ray.direction) < -Precision.Distance
+        );
     }
 
     protected override inputError(text: string) {

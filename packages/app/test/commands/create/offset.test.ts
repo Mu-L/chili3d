@@ -102,7 +102,7 @@ describe("OffsetCommand", () => {
 
             seedStepDatas(cmd, [
                 shapeStepResult([{ shape: edgeShape, point: XYZ.zero }]),
-                { type: "input" as const, distance: 5 } as any,
+                { type: "input" as const, distance: 5, point: new XYZ({x: 5, y: 0, z: 0}) } as any,
             ]);
 
             (cmd as any).executeMainTask();
@@ -127,7 +127,7 @@ describe("OffsetCommand", () => {
 
             seedStepDatas(cmd, [
                 shapeStepResult([{ shape: edgeShape, point: XYZ.zero }]),
-                { type: "input" as const, distance: 12 } as any,
+                { type: "input" as const, distance: 12, point: new XYZ({ x: 0, y: -12, z: 0 }) } as any,
             ]);
 
             (cmd as any).executeMainTask();
@@ -141,7 +141,7 @@ describe("OffsetCommand", () => {
             const edgeShape = makeEdgeShape(Result.ok({ shapeType: ShapeTypes.wire } as any));
             seedStepDatas(cmd, [
                 shapeStepResult([{ shape: edgeShape, point: XYZ.zero }]),
-                { type: "input" as const, distance: 3 } as any,
+                { type: "input" as const, distance: 3, point: new XYZ({ x: 3, y: 0, z: 0 }) } as any,
             ]);
 
             (cmd as any).executeMainTask();
