@@ -3,6 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { EditableShapeNode, type IDocument, ShapeTypes, XYZ } from "@chili3d/core";
 import { createMockVisualWithDocument, TestDocument } from "@chili3d/core/test-utils";
 import { initWasm, ShapeFactory } from "@chili3d/wasm";
@@ -10,7 +11,9 @@ import { WireNode } from "../../../src/bodys/wire";
 import { ConvertToWire } from "../../../src/commands/create/converter";
 import { SelectionManager } from "../../../src/selectionManager";
 
-const WASM_BINARY = readFileSync(path.resolve(process.cwd(), "packages/wasm/lib/chili-wasm.wasm"));
+const WASM_BINARY = readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../wasm/lib/chili-wasm.wasm"),
+);
 
 let restoreApp: () => void;
 let factory: ShapeFactory;
