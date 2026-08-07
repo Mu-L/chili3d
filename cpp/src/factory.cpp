@@ -928,9 +928,7 @@ public:
             }
             sewing.Perform();
             result = sewing.SewedShape();
-            // Preserve the solid wrapper when the detached faces came from a solid
-            // (e.g. flat sheets turned into solids by `sewing`).
-            if (shape.ShapeType() == TopAbs_SOLID && result.ShapeType() == TopAbs_SHELL) {
+            if (result.ShapeType() == TopAbs_SHELL && BRep_Tool::IsClosed(result)) {
                 BRepBuilderAPI_MakeSolid makeSolid(TopoDS::Shell(result));
                 if (makeSolid.IsDone()) {
                     result = makeSolid.Solid();
