@@ -7,6 +7,7 @@ export * from "./cone";
 export * from "./cylinder";
 export * from "./ellipse";
 export * from "./extrude";
+export * from "./helix";
 export * from "./line";
 export * from "./pipe";
 export * from "./point";

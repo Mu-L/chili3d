@@ -25,6 +25,14 @@ export interface IShapeFactory {
     shell(faces: IFace[]): Result<IShell>;
     solid(shells: IShell[]): Result<ISolid>;
     bezier(points: XYZLike[], weights?: number[]): Result<IEdge>;
+    helix(
+        origin: XYZLike,
+        normal: XYZLike,
+        xDir: XYZLike,
+        radius: number,
+        pitch: number,
+        angle: number,
+    ): Result<IWire>;
     point(point: XYZLike): Result<IVertex>;
     line(start: XYZLike, end: XYZLike): Result<IEdge>;
     arc(normal: XYZLike, center: XYZLike, start: XYZLike, angle: number): Result<IEdge>;

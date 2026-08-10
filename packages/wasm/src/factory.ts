@@ -305,6 +305,20 @@ export class ShapeFactory implements IShapeFactory {
             "Bezier Error",
         ) as Result<IEdge>;
     }
+    helix(
+        origin: XYZLike,
+        normal: XYZLike,
+        xDir: XYZLike,
+        radius: number,
+        pitch: number,
+        angle: number,
+    ): Result<IWire> {
+        return convertShapeResult(
+            wasm.ShapeFactory.helix,
+            [origin, normal, xDir, radius, pitch, MathUtils.degToRad(angle)],
+            "Helix Error",
+        ) as Result<IWire>;
+    }
     point(point: XYZLike): Result<IVertex> {
         return convertShapeResult(wasm.ShapeFactory.point, [point], "Point Error") as Result<IVertex>;
     }

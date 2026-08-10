@@ -102,7 +102,7 @@ describe("OffsetCommand", () => {
 
             seedStepDatas(cmd, [
                 shapeStepResult([{ shape: edgeShape, point: XYZ.zero }]),
-                { type: "input" as const, distance: 5, point: new XYZ({x: 5, y: 0, z: 0}) } as any,
+                { type: "input" as const, distance: 5, point: new XYZ({ x: 5, y: 0, z: 0 }) } as any,
             ]);
 
             (cmd as any).executeMainTask();

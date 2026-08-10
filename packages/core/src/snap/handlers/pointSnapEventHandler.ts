@@ -3,7 +3,7 @@
 
 import { Config } from "../../config";
 import type { IDocument } from "../../document";
-import { Precision, type AsyncController } from "../../foundation";
+import { type AsyncController, Precision } from "../../foundation";
 import type { I18nKeys } from "../../i18n";
 import { type Line, type Plane, XYZ } from "../../math";
 import type { ICurve, ShapeType } from "../../shape";

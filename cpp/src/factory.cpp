@@ -46,10 +46,13 @@
 #include <ChFi2d_ChamferAPI.hxx>
 #include <ChFi2d_FilletAPI.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
+#include <Geom_BSplineCurve.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_Line.hxx>
 #include <Geom_OffsetCurve.hxx>
 #include <Geom_TrimmedCurve.hxx>
+#include <HelixBRep_BuilderHelix.hxx>
+#include <NCollection_Array1.hxx>
 #include <ShapeAnalysis_Edge.hxx>
 #include <ShapeFix_Face.hxx>
 #include <ShapeFix_FixSmallFace.hxx>
@@ -544,6 +547,42 @@ public:
             return ShapeResult { TopoDS_Shape(), false, "Failed to create bezier" };
         }
         return ShapeResult { edge.Edge(), true, "" };
+    }
+
+    static ShapeResult helix(
+        const Vector3& origin,
+        const Vector3& normal,
+        const Vector3& xDir,
+        double radius,
+        double pitch,
+        double angle)
+    {
+        if (radius < Precision::Confusion()) {
+            return ShapeResult { TopoDS_Shape(), false, "The radius is too small." };
+        }
+        if (std::abs(pitch) < Precision::Confusion()) {
+            return ShapeResult { TopoDS_Shape(), false, "The pitch is too small." };
+        }
+        if (std::abs(angle) < Precision::Angular()) {
+            return ShapeResult { TopoDS_Shape(), false, "The angle is too small." };
+        }
+
+        gp_Ax3 axis(Vector3::toPnt(origin), Vector3::toDir(normal), Vector3::toDir(xDir));
+
+        NCollection_Array1<double> pitches(1, 1);
+        pitches(1) = pitch;
+        NCollection_Array1<double> nbTurns(1, 1);
+        nbTurns(1) = std::abs(angle) / Math::PI_2;
+
+        HelixBRep_BuilderHelix helixBuilder;
+        helixBuilder.SetParameters(axis, 2.0 * radius, pitches, nbTurns);
+        helixBuilder.Perform();
+
+        if (helixBuilder.ErrorStatus() != 0) {
+            return ShapeResult { TopoDS_Shape(), false, "Failed to create helix" };
+        }
+
+        return ShapeResult { helixBuilder.Shape(), true, "" };
     }
 
     static ShapeResult point(const Vector3& point)
@@ -1374,6 +1413,7 @@ EMSCRIPTEN_BINDINGS(ShapeFactory)
         .class_function("circle", &ShapeFactory::circle)
         .class_function("arc", &ShapeFactory::arc)
         .class_function("bezier", &ShapeFactory::bezier)
+        .class_function("helix", &ShapeFactory::helix)
         .class_function("rect", &ShapeFactory::rect)
         .class_function("point", &ShapeFactory::point)
         .class_function("line", &ShapeFactory::line)

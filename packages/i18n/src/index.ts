@@ -2,8 +2,8 @@
 // See LICENSE file in the project root for full license information.
 
 import en from "./en";
-import ru from "./ru";
 import ptBr from "./pt-br";
+import ru from "./ru";
 import zhCn from "./zh-cn";
 
-export { en, ru, ptBr, zhCn };
+export { en, ptBr, ru, zhCn };

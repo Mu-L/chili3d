@@ -15,7 +15,7 @@ set (OcctToolkits
     # ModelingData
     TKG2d TKG3d TKGeomBase TKBRep
     # ModelingAlgorithms
-    TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool TKHLR TKFillet TKOffset TKFeat TKMesh TKShHealing
+    TKGeomAlgo TKTopAlgo TKPrim TKBO TKBool TKHLR TKFillet TKOffset TKFeat TKMesh TKShHealing TKHelix
     # Visualization
     TKService TKV3d
     # ApplicationFramework

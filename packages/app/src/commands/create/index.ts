@@ -15,6 +15,7 @@ export * from "./cylinder";
 export * from "./ellipse";
 export * from "./extrude";
 export * from "./group";
+export * from "./helix";
 export * from "./line";
 export * from "./loft";
 export * from "./offset";
