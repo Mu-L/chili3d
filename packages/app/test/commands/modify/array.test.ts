@@ -184,6 +184,44 @@ describe("ArrayCommand", () => {
         expect(cmd.showCount).toBe(true);
     });
 
+    test("totalLength should default to false", () => {
+        const cmd = new ArrayCommand();
+        expect(cmd.totalLength).toBe(false);
+    });
+
+    test("totalLength setter should update property", () => {
+        const cmd = new ArrayCommand();
+        cmd.totalLength = true;
+        expect(cmd.totalLength).toBe(true);
+
+        cmd.totalLength = false;
+        expect(cmd.totalLength).toBe(false);
+    });
+
+    test("showTotalLength should reflect patternType (true for linear and circular)", () => {
+        const cmd = new ArrayCommand();
+        cmd.patternType = "option.command.patternType.linear";
+        expect(cmd.showTotalLength).toBe(true);
+
+        cmd.patternType = "option.command.patternType.circular";
+        expect(cmd.showTotalLength).toBe(true);
+
+        cmd.patternType = "option.command.patternType.rectangular";
+        expect(cmd.showTotalLength).toBe(false);
+
+        cmd.patternType = "option.command.patternType.curve";
+        expect(cmd.showTotalLength).toBe(false);
+    });
+
+    test("showTotalLength setter should update property", () => {
+        const cmd = new ArrayCommand();
+        cmd.showTotalLength = false;
+        expect(cmd.showTotalLength).toBe(false);
+
+        cmd.showTotalLength = true;
+        expect(cmd.showTotalLength).toBe(true);
+    });
+
     test("getSteps should return appropriate steps for each pattern type", () => {
         const cmd = new ArrayCommand();
 
@@ -218,6 +256,70 @@ describe("ArrayCommand", () => {
         expect(mats).toHaveLength(4);
     });
 
+    test("getLinearTransforms with totalLength spreads copies over the picked vector", () => {
+        const cmd = new ArrayCommand();
+        cmd.count = 3;
+        cmd.totalLength = true;
+        wireCommand(cmd);
+
+        const mats = (cmd as any).getLinearTransforms(new XYZ({ x: 4, y: 0, z: 0 })) as Matrix4[];
+        expect(mats).toHaveLength(3);
+        expect(mats[0].translationPart().isEqualTo(XYZ.zero)).toBe(true);
+        expect(mats[1].translationPart().isEqualTo(new XYZ({ x: 2, y: 0, z: 0 }))).toBe(true);
+        expect(mats[2].translationPart().isEqualTo(new XYZ({ x: 4, y: 0, z: 0 }))).toBe(true);
+    });
+
+    test("getLinearTransforms without totalLength treats the picked vector as spacing", () => {
+        const cmd = new ArrayCommand();
+        cmd.count = 3;
+        wireCommand(cmd);
+
+        const mats = (cmd as any).getLinearTransforms(new XYZ({ x: 4, y: 0, z: 0 })) as Matrix4[];
+        expect(mats[2].translationPart().isEqualTo(new XYZ({ x: 8, y: 0, z: 0 }))).toBe(true);
+    });
+
+    test("stepAngle divides the total angle by count - 1 only in totalLength mode", () => {
+        const cmd = new ArrayCommand();
+        cmd.count = 5;
+        wireCommand(cmd);
+
+        expect((cmd as any).stepAngle(90)).toBe(90);
+
+        cmd.totalLength = true;
+        expect((cmd as any).stepAngle(90)).toBe(22.5);
+
+        cmd.count = 1;
+        expect((cmd as any).stepAngle(90)).toBe(90);
+    });
+
+    test("circular getArrayTransforms with totalLength spans the picked angle", () => {
+        const cmd = new ArrayCommand();
+        wireCommand(cmd);
+        cmd.patternType = "option.command.patternType.circular";
+        cmd.count = 3;
+        cmd.totalLength = true;
+
+        const plane = new Plane({ origin: XYZ.zero, normal: XYZ.unitZ, xvec: XYZ.unitX });
+        (cmd as any)._planeAngle = new PlaneAngle(plane);
+
+        seedStepDatas(cmd, [
+            pointStep(XYZ.zero),
+            pointStep(new XYZ({ x: 1, y: 0, z: 0 })),
+            pointStep(new XYZ({ x: 0, y: 1, z: 0 })), // 90 degrees total around Z
+        ]);
+
+        const mats = (cmd as any).getArrayTransforms() as Matrix4[];
+        expect(mats).toHaveLength(3);
+
+        // The last copy sits at the full 90 degrees; the middle one at 45 degrees.
+        const last = mats[2].ofPoint(new XYZ({ x: 1, y: 0, z: 0 }));
+        expect(last.x).toBeCloseTo(0, 10);
+        expect(last.y).toBeCloseTo(1, 10);
+        const middle = mats[1].ofPoint(new XYZ({ x: 1, y: 0, z: 0 }));
+        expect(middle.x).toBeCloseTo(Math.SQRT1_2, 10);
+        expect(middle.y).toBeCloseTo(Math.SQRT1_2, 10);
+    });
+
     test("getBoxTransforms should return numberX*numberY*numberZ matrices", () => {
         const cmd = new ArrayCommand();
         cmd.numberX = 2;
@@ -234,6 +336,44 @@ describe("ArrayCommand", () => {
         wireCommand(cmd);
         const mats = (cmd as any).getArcMatrixs(XYZ.zero, XYZ.unitZ, Math.PI / 4) as Matrix4[];
         expect(mats).toHaveLength(5);
+    });
+
+    test("normalOffset should default to 0", () => {
+        const cmd = new ArrayCommand();
+        expect(cmd.normalOffset).toBe(0);
+    });
+
+    test("normalOffset setter should update property", () => {
+        const cmd = new ArrayCommand();
+        cmd.normalOffset = 2.5;
+        expect(cmd.normalOffset).toBe(2.5);
+    });
+
+    test("getArcMatrixs with normalOffset offsets each copy along the normal", () => {
+        const cmd = new ArrayCommand();
+        cmd.count = 3;
+        cmd.normalOffset = 2;
+        wireCommand(cmd);
+
+        // Zero rotation angle: copies are only shifted along the normal.
+        const mats = (cmd as any).getArcMatrixs(XYZ.zero, XYZ.unitZ, 0) as Matrix4[];
+        expect(mats[0].translationPart().isEqualTo(XYZ.zero)).toBe(true);
+        expect(mats[1].translationPart().isEqualTo(new XYZ({ x: 0, y: 0, z: 2 }))).toBe(true);
+        expect(mats[2].translationPart().isEqualTo(new XYZ({ x: 0, y: 0, z: 4 }))).toBe(true);
+    });
+
+    test("getArcMatrixs with normalOffset rotates first, then offsets along the normal", () => {
+        const cmd = new ArrayCommand();
+        cmd.count = 2;
+        cmd.normalOffset = 3;
+        wireCommand(cmd);
+
+        // 90 degrees around Z: unitX -> unitY, then +3 along Z.
+        const mats = (cmd as any).getArcMatrixs(XYZ.zero, XYZ.unitZ, Math.PI / 2) as Matrix4[];
+        const last = mats[1].ofPoint(new XYZ({ x: 1, y: 0, z: 0 }));
+        expect(last.x).toBeCloseTo(0, 10);
+        expect(last.y).toBeCloseTo(1, 10);
+        expect(last.z).toBeCloseTo(3, 10);
     });
 
     describe("executeMainTask", () => {

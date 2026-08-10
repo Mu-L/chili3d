@@ -64,6 +64,9 @@ export class ArrayCommand extends MultistepCommand {
         this.setProperty("patternType", value, () => {
             this.restart();
             this.showCount = this.patternType !== "option.command.patternType.rectangular";
+            this.showTotalLength =
+                this.patternType === "option.command.patternType.linear" ||
+                this.patternType === "option.command.patternType.circular";
         });
     }
 
@@ -85,6 +88,32 @@ export class ArrayCommand extends MultistepCommand {
         this.setProperty("showCount", value);
     }
 
+    get showTotalLength(): boolean {
+        return this.getPrivateValue(
+            "showTotalLength",
+            this.patternType === "option.command.patternType.linear" ||
+                this.patternType === "option.command.patternType.circular",
+        );
+    }
+    set showTotalLength(value: boolean) {
+        this.setProperty("showTotalLength", value);
+    }
+
+    @property("option.command.totalLength", {
+        dependencies: [
+            {
+                property: "showTotalLength",
+                value: true,
+            },
+        ],
+    })
+    get totalLength() {
+        return this.getPrivateValue("totalLength", false);
+    }
+    set totalLength(value: boolean) {
+        this.setProperty("totalLength", value, () => this.resetMesh());
+    }
+
     @property("common.count", {
         dependencies: [
             {
@@ -98,6 +127,21 @@ export class ArrayCommand extends MultistepCommand {
     }
     set count(value: number) {
         this.setProperty("count", value, () => this.resetMesh());
+    }
+
+    @property("option.command.normalOffset", {
+        dependencies: [
+            {
+                property: "patternType",
+                value: "option.command.patternType.circular",
+            },
+        ],
+    })
+    get normalOffset() {
+        return this.getPrivateValue("normalOffset", 0);
+    }
+    set normalOffset(value: number) {
+        this.setProperty("normalOffset", value, () => this.resetMesh());
     }
 
     @property("common.numberX", {
@@ -249,12 +293,17 @@ export class ArrayCommand extends MultistepCommand {
         if (this.count === 1) {
             transforms[0] = Matrix4.identity();
         } else {
+            const step = this.totalLength ? direction.divided(this.count - 1)! : direction;
             for (let i = 0; i < this.count; i++) {
-                const vec = direction.multiply(i);
+                const vec = step.multiply(i);
                 transforms[i] = Matrix4.fromTranslation(vec.x, vec.y, vec.z);
             }
         }
         return transforms;
+    }
+
+    private stepAngle(angle: number): number {
+        return this.totalLength && this.count > 1 ? angle / (this.count - 1) : angle;
     }
 
     private getCurveTransforms(curve: ICurve): Matrix4[] {
@@ -273,6 +322,10 @@ export class ArrayCommand extends MultistepCommand {
         const transforms = new Array<Matrix4>(this.count);
         for (let i = 0; i < this.count; i++) {
             transforms[i] = Matrix4.fromAxisRad(center, normal, i * angle);
+            if (this.normalOffset !== 0) {
+                const offset = normal.multiply(i * this.normalOffset);
+                transforms[i] = transforms[i].multiply(Matrix4.fromTranslation(offset.x, offset.y, offset.z));
+            }
         }
         return transforms;
     }
@@ -386,7 +439,7 @@ export class ArrayCommand extends MultistepCommand {
             const transforms = this.getArcMatrixs(
                 center,
                 this._planeAngle!.plane.normal,
-                MathUtils.degToRad(this._planeAngle!.angle),
+                MathUtils.degToRad(this.stepAngle(this._planeAngle!.angle)),
             );
             this.updatePosition(transforms);
 
@@ -546,8 +599,11 @@ export class ArrayCommand extends MultistepCommand {
                 const p1 = this.stepDatas[1].point!;
                 const p2 = this.stepDatas[2].point!;
                 const normal = this._planeAngle!.plane.normal;
-                const angle = p1.sub(center).angleOnPlaneTo(p2.sub(center), normal)!;
-                return this.getArcMatrixs(center, normal, angle);
+                let angle = p1.sub(center).angleOnPlaneTo(p2.sub(center), normal)!;
+                if (this._planeAngle && this._planeAngle.angle < 0) {
+                    angle = angle - Math.PI * 2;
+                }
+                return this.getArcMatrixs(center, normal, this.stepAngle(angle));
             }
             case "option.command.patternType.rectangular": {
                 const { xvec, yvec, normal } = this.boxPlaneInfo(3);
