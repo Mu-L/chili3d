@@ -84,10 +84,17 @@ function curveEdgeData(
     created: MockShape[],
     spec: TempEdgeSpec = {},
 ): Partial<IShape> {
+    const c = curve as {
+        firstParameter: () => number;
+        lastParameter: () => number;
+        value: (u: number) => XYZ;
+    };
     return {
         shapeType: ShapeTypes.edge,
         parent,
         curve,
+        startPoint: () => c.value(c.firstParameter()),
+        endPoint: () => c.value(c.lastParameter()),
         trim: (...args: unknown[]) => {
             trims.push(args);
             const edge = mockShape({
@@ -100,6 +107,15 @@ function curveEdgeData(
             return edge;
         },
     } as unknown as Partial<IShape>;
+}
+
+/** A plain wire-member edge mock with endpoints and an optional `isEqual` match. */
+function wireMember(start: XYZ, end: XYZ, match?: unknown) {
+    return mockShape({
+        startPoint: () => start,
+        endPoint: () => end,
+        isEqual: (other: unknown) => other === match,
+    } as Partial<MockShape>);
 }
 
 function edgeNode(name: string, parent: TrackingParent, body: unknown, document: unknown) {
@@ -178,17 +194,21 @@ function buildWireCommand(opts: { curves?: [unknown, unknown] } = {}) {
     const trims: [unknown[][], unknown[][]] = [[], []];
     const created: MockShape[] = [];
     const [curve1, curve2] = opts.curves ?? [X_CURVE(), Y_CURVE()];
-    const step = shapeStepResult([
-        { shape: curveEdgeData(wire, curve1, trims[0], created), node: edgeNode("wire0", parent, wire, doc) },
-        { shape: curveEdgeData(wire, curve2, trims[1], created), node: edgeNode("wire0", parent, wire, doc) },
+    const node = edgeNode("wire0", parent, wire, doc);
+    seedStepDatas(cmd, [
+        shapeStepResult([{ shape: curveEdgeData(wire, curve1, trims[0], created), node }]),
+        shapeStepResult([{ shape: curveEdgeData(wire, curve2, trims[1], created), node }]),
     ]);
-    seedStepDatas(cmd, [step]);
 
     const sel0 = (cmd as any).stepDatas[0].shapes[0].shape;
-    const sel1 = (cmd as any).stepDatas[0].shapes[1].shape;
-    const allEdges = [mockShape(), mockShape(), mockShape()];
-    (allEdges[1] as any).isEqual = (other: unknown) => other === sel0;
-    (allEdges[2] as any).isEqual = (other: unknown) => other === sel1;
+    const sel1 = (cmd as any).stepDatas[1].shapes[0].shape;
+    // the diagonal shares X's first end (0,0) and Y's last end (3,2), so the
+    // two picked edges can only move their other - free - ends
+    const allEdges = [
+        wireMember(XYZ.zero, new XYZ({ x: 3, y: 2, z: 0 })),
+        wireMember(XYZ.zero, new XYZ({ x: 1, y: 0, z: 0 }), sel0),
+        wireMember(new XYZ({ x: 3, y: 1, z: 0 }), new XYZ({ x: 3, y: 2, z: 0 }), sel1),
+    ];
     (wire as any).findSubShapes = () => allEdges;
 
     return { cmd, doc, parent, wire, trims, created, allEdges, sel0, sel1 };
@@ -197,8 +217,8 @@ function buildWireCommand(opts: { curves?: [unknown, unknown] } = {}) {
 /** Builds the shape partial of one selected standalone edge. */
 type EdgeFactory = (ctx: { body: unknown; trims: unknown[][]; created: MockShape[] }) => Partial<IShape>;
 
-/** A command seeded with edges of two standalone edge bodies. */
-function buildStandaloneCommand(opts: { count?: 1 | 2; shapes?: [EdgeFactory, EdgeFactory] } = {}) {
+/** A command seeded with a standalone target edge and a standalone boundary edge. */
+function buildStandaloneCommand(opts: { shapes?: [EdgeFactory, EdgeFactory] } = {}) {
     const cmd = new ExtendCommand();
     const { doc } = wireCommand(cmd);
     const parent = doc.modelManager.rootNode as unknown as TrackingParent;
@@ -210,11 +230,17 @@ function buildStandaloneCommand(opts: { count?: 1 | 2; shapes?: [EdgeFactory, Ed
         (ctx) => curveEdgeData(ctx.body, X_CURVE(), ctx.trims, ctx.created),
         (ctx) => curveEdgeData(ctx.body, Y_CURVE(), ctx.trims, ctx.created),
     ];
-    const entries = factories.slice(0, opts.count ?? 2).map((factory, i) => ({
-        shape: factory({ body, trims: trims[i], created }),
-        node: edgeNode(`edge${i}`, parent, body, doc),
-    }));
-    seedStepDatas(cmd, [shapeStepResult(entries)]);
+    seedStepDatas(
+        cmd,
+        factories.map((factory, i) =>
+            shapeStepResult([
+                {
+                    shape: factory({ body, trims: trims[i], created }),
+                    node: edgeNode(`edge${i}`, parent, body, doc),
+                },
+            ]),
+        ),
+    );
 
     return { cmd, doc, parent, trims, created };
 }
@@ -232,16 +258,21 @@ describe("ExtendCommand", () => {
         expect(data.key).toBe("modify.extend");
     });
 
-    test("getSteps should return a single edge-selection step finishing on two edges", () => {
+    test("getSteps should return target and boundary edge-selection steps", () => {
         const cmd = new ExtendCommand();
         const steps = (cmd as any).getSteps();
-        expect(steps.length).toBe(1);
+        expect(steps.length).toBe(2);
         expect(steps[0].snapeType).toBe(ShapeTypes.edge);
-        expect(steps[0].options.multiple).toBe(true);
+        expect(steps[0].prompt).toBe("prompt.select.extendTarget");
+        expect(steps[1].snapeType).toBe(ShapeTypes.edge);
+        expect(steps[1].prompt).toBe("prompt.select.boundary");
+    });
 
-        const canFinish = steps[0].options.canFinish;
-        expect(canFinish([{ shape: mockShape() }])).toBe(false);
-        expect(canFinish([{ shape: mockShape() }, { shape: mockShape() }])).toBe(true);
+    test("modifyBoundary should default to true", () => {
+        const cmd = new ExtendCommand();
+        expect((cmd as any).modifyBoundary).toBe(true);
+        (cmd as any).modifyBoundary = false;
+        expect((cmd as any).modifyBoundary).toBe(false);
     });
 
     describe("edgeFilter", () => {
@@ -259,39 +290,47 @@ describe("ExtendCommand", () => {
             expect(filter.allow(edgeOn(typedParent(ShapeTypes.solid)), Matrix4.identity())).toBe(false);
             expect(filter.allow(edgeOn(typedParent(ShapeTypes.shell)), Matrix4.identity())).toBe(false);
         });
+    });
 
-        test("should only allow edges of the first edge's wire", () => {
-            const { cmd, doc, wire } = buildWireCommand();
-            (doc.selection as any).getSelectedShapes = () => [{ shape: edgeOn(wire) }];
+    describe("boundaryFilter", () => {
+        const edgeOn = (parent: unknown) =>
+            mockShape({ shapeType: ShapeTypes.edge, parent } as Partial<MockShape>);
+        const filterOf = (cmd: ExtendCommand) => (cmd as any).getSteps()[1].options.shapeFilter;
 
+        test("should allow any standalone or wire edge as boundary", () => {
+            const { cmd, wire } = buildWireCommand();
             const filter = filterOf(cmd);
+
             expect(filter.allow(edgeOn(wire), Matrix4.identity())).toBe(true);
-            expect(filter.allow(edgeOn(typedParent(ShapeTypes.wire)), Matrix4.identity())).toBe(false);
-            expect(filter.allow(edgeOn(typedParent(ShapeTypes.edge)), Matrix4.identity())).toBe(false);
-        });
-
-        test("should only allow standalone edges after a standalone edge is selected", () => {
-            const { cmd, doc } = buildStandaloneCommand();
-            const body = typedParent(ShapeTypes.edge);
-            (doc.selection as any).getSelectedShapes = () => [{ shape: edgeOn(body) }];
-
-            const filter = filterOf(cmd);
+            expect(filter.allow(edgeOn(typedParent(ShapeTypes.wire)), Matrix4.identity())).toBe(true);
             expect(filter.allow(edgeOn(typedParent(ShapeTypes.edge)), Matrix4.identity())).toBe(true);
-            expect(filter.allow(edgeOn(typedParent(ShapeTypes.wire)), Matrix4.identity())).toBe(false);
+            expect(filter.allow(edgeOn(typedParent(ShapeTypes.face)), Matrix4.identity())).toBe(false);
+            expect(filter.allow(edgeOn(typedParent(ShapeTypes.solid)), Matrix4.identity())).toBe(false);
         });
 
-        test("should only allow re-picking a selected edge once two are selected", () => {
-            const { cmd, doc, wire } = buildWireCommand();
-            const first = edgeOn(wire);
-            const second = edgeOn(wire);
-            (doc.selection as any).getSelectedShapes = () => [{ shape: first }, { shape: second }];
-
+        test("should reject the target edge as its own boundary", () => {
+            const { cmd, wire, sel0 } = buildWireCommand();
             const filter = filterOf(cmd);
-            expect(filter.allow(edgeOn(wire), Matrix4.identity())).toBe(false);
 
             const repick = edgeOn(wire);
-            (first as any).isEqual = (other: unknown) => other === repick;
-            expect(filter.allow(repick, Matrix4.identity())).toBe(true);
+            (repick as any).isEqual = (other: unknown) => other === sel0;
+            expect(filter.allow(repick, Matrix4.identity())).toBe(false);
+        });
+
+        test("should allow a wire boundary after a standalone target edge", () => {
+            const { cmd } = buildStandaloneCommand();
+            const filter = filterOf(cmd);
+
+            expect(filter.allow(edgeOn(typedParent(ShapeTypes.edge)), Matrix4.identity())).toBe(true);
+            expect(filter.allow(edgeOn(typedParent(ShapeTypes.wire)), Matrix4.identity())).toBe(true);
+        });
+
+        test("should reject everything when no target edge was picked", () => {
+            const cmd = new ExtendCommand();
+            const filter = filterOf(cmd);
+
+            expect(filter.allow(edgeOn(typedParent(ShapeTypes.edge)), Matrix4.identity())).toBe(false);
+            expect(filter.allow(edgeOn(typedParent(ShapeTypes.wire)), Matrix4.identity())).toBe(false);
         });
     });
 
@@ -333,15 +372,81 @@ describe("ExtendCommand", () => {
         test("should move the picked endpoint to the intersection when it cuts an edge", () => {
             const longX = lineCurve(XYZ.zero, XYZ.unitX, 0, 4); // intersection at x=3 cuts it
             const { cmd, trims } = buildWireCommand({ curves: [longX, Y_CURVE()] });
-            (cmd as any).stepDatas[0].shapes[0].point = new XYZ({ x: 0.5, y: 0, z: 0 }); // picked near x=0
+            (cmd as any).stepDatas[0].shapes[0].point = new XYZ({ x: 3.5, y: 0, z: 0 }); // picked near the free end x=4
 
             const { restore } = captureFactory();
             try {
                 (cmd as any).executeMainTask();
-                expect(trims[0]).toEqual([[3, 4]]); // the picked (left) endpoint moved to x=3
+                expect(trims[0]).toEqual([[0, 3]]); // the picked (right) endpoint moved to x=3
                 expect(trims[1]).toEqual([[0, 2]]);
             } finally {
                 restore();
+            }
+        });
+
+        test("should move the free endpoint when the picked endpoint is shared", () => {
+            const longX = lineCurve(XYZ.zero, XYZ.unitX, 0, 4); // intersection at x=3 cuts it
+            const { cmd, parent, trims } = buildWireCommand({ curves: [longX, Y_CURVE()] });
+            (cmd as any).stepDatas[0].shapes[0].point = new XYZ({ x: 0.5, y: 0, z: 0 }); // picked near the shared end x=0
+
+            const { restore } = captureFactory();
+            try {
+                (cmd as any).executeMainTask();
+
+                // the shared end at x=0 anchors the edge, the free end moves to x=3
+                expect(trims[0]).toEqual([[0, 3]]);
+                expect(trims[1]).toEqual([[0, 2]]);
+                expect(parent.added).toHaveLength(1);
+                expect(parent.removed).toHaveLength(1);
+            } finally {
+                restore();
+            }
+        });
+
+        test("should move the free endpoint to the corner beyond the shared end", () => {
+            const { cmd, wire, sel0, sel1, parent, trims, created } = buildWireCommand();
+            // the third edge shares X's last end (1,0): it anchors the edge while the
+            // free end moves to the corner at x=3
+            const allEdges = [
+                wireMember(new XYZ({ x: 1, y: 0, z: 0 }), new XYZ({ x: 5, y: 0, z: 0 })),
+                wireMember(XYZ.zero, new XYZ({ x: 1, y: 0, z: 0 }), sel0),
+                wireMember(new XYZ({ x: 3, y: 1, z: 0 }), new XYZ({ x: 3, y: 2, z: 0 }), sel1),
+            ];
+            (wire as any).findSubShapes = () => allEdges;
+
+            const { calls, restore } = captureFactory();
+            try {
+                (cmd as any).executeMainTask();
+
+                expect(trims[0]).toEqual([[1, 3]]); // from the anchor (1,0) to the corner (3,0)
+                expect(trims[1]).toEqual([[0, 2]]);
+                expect(calls["wire"]).toHaveLength(1);
+                expect(calls["wire"][0][0]).toEqual([allEdges[0], created[0], allEdges[2]]);
+                expect(parent.added).toHaveLength(1);
+                expect(parent.removed).toHaveLength(1);
+            } finally {
+                restore();
+            }
+        });
+
+        test("should report an error when both endpoints are shared", () => {
+            const { cmd, wire, sel0, sel1, parent } = buildWireCommand();
+            // the third edge shares both ends of the X edge, so its range cannot change
+            (wire as any).findSubShapes = () => [
+                wireMember(XYZ.zero, new XYZ({ x: 1, y: 0, z: 0 })),
+                wireMember(XYZ.zero, new XYZ({ x: 1, y: 0, z: 0 }), sel0),
+                wireMember(new XYZ({ x: 3, y: 1, z: 0 }), new XYZ({ x: 3, y: 2, z: 0 }), sel1),
+            ];
+
+            const pubsub = capturePubSub();
+            try {
+                (cmd as any).executeMainTask();
+
+                expect(pubsub.pubs.some((args) => args[0] === "displayError")).toBe(true);
+                expect(parent.added).toHaveLength(0);
+                expect(parent.removed).toHaveLength(0);
+            } finally {
+                pubsub.restore();
             }
         });
 
@@ -377,23 +482,94 @@ describe("ExtendCommand", () => {
             }
         });
 
-        test("should report an error when the wire edges are not adjacent", () => {
-            const { cmd, wire, sel0, sel1, allEdges, parent } = buildWireCommand();
-            // a 4-edge wire where the selected edges sit at index 0 and 2
-            const wider = [mockShape(), mockShape(), mockShape(), mockShape()];
-            (wider[0] as any).isEqual = (other: unknown) => other === sel0;
-            (wider[2] as any).isEqual = (other: unknown) => other === sel1;
+        test("should extend non-adjacent edges of the same wire", () => {
+            const { cmd, wire, sel0, sel1, created } = buildWireCommand();
+            // a 4-edge wire where the picked edges sit at index 0 and 2; the diagonal
+            // shares X's first end and Y's last end, the fourth edge is far away
+            const wider = [
+                wireMember(XYZ.zero, new XYZ({ x: 1, y: 0, z: 0 }), sel0),
+                wireMember(XYZ.zero, new XYZ({ x: 3, y: 2, z: 0 })),
+                wireMember(new XYZ({ x: 3, y: 1, z: 0 }), new XYZ({ x: 3, y: 2, z: 0 }), sel1),
+                wireMember(new XYZ({ x: 10, y: 10, z: 0 }), new XYZ({ x: 11, y: 11, z: 0 })),
+            ];
             (wire as any).findSubShapes = () => wider;
 
-            const pubsub = capturePubSub();
+            const { calls, restore } = captureFactory();
             try {
                 (cmd as any).executeMainTask();
 
-                expect(pubsub.pubs.some((args) => args[0] === "displayError")).toBe(true);
-                expect(parent.added).toHaveLength(0);
-                expect(allEdges.length).toBe(3); // sanity: the wire no longer returns the original list
+                expect(calls["wire"]).toHaveLength(1);
+                expect(calls["wire"][0][0]).toEqual([created[0], wider[1], created[1], wider[3]]);
             } finally {
-                pubsub.restore();
+                restore();
+            }
+        });
+
+        test("should only extend the target edge of a wire when modifyBoundary is false", () => {
+            const { cmd, parent, trims, created, allEdges } = buildWireCommand();
+            (cmd as any).modifyBoundary = false;
+
+            const { calls, restore } = captureFactory();
+            try {
+                (cmd as any).executeMainTask();
+
+                expect(trims[0]).toEqual([[0, 3]]); // target edge extended to x=3
+                expect(trims[1]).toEqual([]); // the boundary edge is left unchanged
+                expect(calls["wire"]).toHaveLength(1);
+                expect(calls["wire"][0][0]).toEqual([allEdges[0], created[0], allEdges[2]]);
+                expect(parent.added).toHaveLength(1);
+                expect(parent.removed).toHaveLength(1);
+            } finally {
+                restore();
+            }
+        });
+
+        test("should extend a wire edge to a standalone boundary edge", () => {
+            const cmd = new ExtendCommand();
+            const { doc } = wireCommand(cmd);
+            const parent = doc.modelManager.rootNode as unknown as TrackingParent;
+            const wire = typedParent(ShapeTypes.wire);
+            const body = typedParent(ShapeTypes.edge);
+
+            const trims: [unknown[][], unknown[][]] = [[], []];
+            const created: MockShape[] = [];
+            seedStepDatas(cmd, [
+                shapeStepResult([
+                    {
+                        shape: curveEdgeData(wire, X_CURVE(), trims[0], created),
+                        node: edgeNode("wire0", parent, wire, doc),
+                    },
+                ]),
+                shapeStepResult([
+                    {
+                        shape: curveEdgeData(body, Y_CURVE(), trims[1], created),
+                        node: edgeNode("edge1", parent, body, doc),
+                    },
+                ]),
+            ]);
+
+            const sel0 = (cmd as any).stepDatas[0].shapes[0].shape;
+            // the first edge shares X's first end (0,0), so X's last end is free
+            const allEdges = [
+                wireMember(XYZ.zero, new XYZ({ x: 5, y: 5, z: 0 })),
+                wireMember(XYZ.zero, new XYZ({ x: 1, y: 0, z: 0 }), sel0),
+                wireMember(new XYZ({ x: 9, y: 9, z: 0 }), new XYZ({ x: 10, y: 10, z: 0 })),
+            ];
+            (wire as any).findSubShapes = () => allEdges;
+
+            const { calls, restore } = captureFactory();
+            try {
+                (cmd as any).executeMainTask();
+
+                expect(trims[0]).toEqual([[0, 3]]); // the wire edge is extended to x=3
+                expect(trims[1]).toEqual([[0, 2]]); // the standalone boundary is extended to y=0
+                expect(calls["wire"]).toHaveLength(1);
+                expect(calls["wire"][0][0]).toEqual([allEdges[0], created[0], allEdges[2]]);
+                // the rebuilt wire node and the replaced boundary node
+                expect(parent.added).toHaveLength(2);
+                expect(parent.removed).toHaveLength(2);
+            } finally {
+                restore();
             }
         });
 
@@ -414,19 +590,43 @@ describe("ExtendCommand", () => {
             expect(added2.shape.value).toBe(created[1]);
         });
 
-        test("should report an error and keep the nodes when only one standalone edge is selected", () => {
-            const { cmd, parent } = buildStandaloneCommand({ count: 1 });
+        test("should only extend the target edge when modifyBoundary is false", () => {
+            // the vertical boundary already passes through the corner (3,0)
+            const boundary = lineCurve(new XYZ({ x: 3, y: -1, z: 0 }), XYZ.unitY, -1, 2);
+            const { cmd, parent, trims, created } = buildStandaloneCommand({
+                shapes: [
+                    (ctx) => curveEdgeData(ctx.body, X_CURVE(), ctx.trims, ctx.created),
+                    (ctx) => curveEdgeData(ctx.body, boundary, ctx.trims, ctx.created),
+                ],
+            });
+            (cmd as any).modifyBoundary = false;
 
-            const pubsub = capturePubSub();
-            try {
-                (cmd as any).executeMainTask();
+            (cmd as any).executeMainTask();
 
-                expect(pubsub.pubs.some((args) => args[0] === "displayError")).toBe(true);
-                expect(parent.added).toHaveLength(0);
-                expect(parent.removed).toHaveLength(0);
-            } finally {
-                pubsub.restore();
-            }
+            expect(trims[0]).toEqual([[0, 3]]); // X segment [0,1] extended to x=3
+            expect(trims[1]).toEqual([]); // the boundary edge is left unchanged
+            expect(parent.added).toHaveLength(1);
+            expect(parent.removed).toHaveLength(1);
+            const added = parent.added[0] as any;
+            expect(added.name).toBe("edge0");
+            expect(added.shape.value).toBe(created[0]);
+        });
+
+        test("should extend the target to the implied corner when modifyBoundary is false", () => {
+            // the corner (3,0) misses the Y segment [1,2]; the boundary is met at
+            // its implied extension and stays unchanged
+            const { cmd, parent, trims, created } = buildStandaloneCommand();
+            (cmd as any).modifyBoundary = false;
+
+            (cmd as any).executeMainTask();
+
+            expect(trims[0]).toEqual([[0, 3]]); // X segment [0,1] extended to x=3
+            expect(trims[1]).toEqual([]); // the boundary edge is left unchanged
+            expect(parent.added).toHaveLength(1);
+            expect(parent.removed).toHaveLength(1);
+            const added = parent.added[0] as any;
+            expect(added.name).toBe("edge0");
+            expect(added.shape.value).toBe(created[0]);
         });
 
         test("should report an error for non-straight edges and keep the nodes", () => {

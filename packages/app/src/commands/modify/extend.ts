@@ -5,7 +5,6 @@ import {
     CurveUtils,
     command,
     EditableShapeNode,
-    I18n,
     type ICircle,
     type ICurve,
     type IEdge,
@@ -17,6 +16,7 @@ import {
     MultistepCommand,
     Precision,
     PubSub,
+    property,
     Result,
     SelectShapeStep,
     type ShapeNode,
@@ -25,7 +25,7 @@ import {
     type VisualShapeData,
     type XYZ,
 } from "@chili3d/core";
-import { type OrderedCorner, orderCornerEdges, replaceShapeNode } from "./edgeCornerCommand";
+import { replaceShapeNode } from "./edgeCornerCommand";
 
 /** The parameters of the point where two support curves meet, one per curve. */
 interface Corner {
@@ -210,15 +210,54 @@ function curveIntersection(
     }
 }
 
+/** Which ends of an edge may move: both ends of a standalone edge, only the free (unshared) ends of a wire edge. */
+interface FreeEnds {
+    first: boolean;
+    last: boolean;
+}
+
+/** The free ends of a wire edge: an end is shared when another edge of the wire starts or ends there. */
+function freeEnds(wire: IShape, edge: ISubEdgeShape): FreeEnds {
+    const others = (wire.findSubShapes(ShapeTypes.edge) as IEdge[]).filter((x) => !x.isEqual(edge));
+    const isShared = (point: XYZ) =>
+        others.some(
+            (x) =>
+                x.startPoint().distanceTo(point) <= Precision.Distance ||
+                x.endPoint().distanceTo(point) <= Precision.Distance,
+        );
+    return { first: !isShared(edge.startPoint()), last: !isShared(edge.endPoint()) };
+}
+
 /**
- * Rebuild the edge so its range reaches p. When p cuts the edge in two the
- * picked endpoint moves to p, keeping the far side (the longer side without
- * a pick point); when p lies outside the edge is extended up to p. An arc
- * may never grow to a full circle.
+ * Rebuild the edge so its range reaches p. When both ends are free the picked
+ * endpoint moves to p (the longer side without a pick point); when only one
+ * end is free the free end moves to p and the shared end anchors the edge,
+ * even when the corner lies beyond the anchor; when both ends are shared the
+ * range cannot change at all. An arc may never grow to a full circle.
  */
-function edgeThroughParameter(edge: IEdge, support: SupportCurve, p: number, end: PickedEnd): Result<IEdge> {
+function edgeThroughParameter(
+    edge: IEdge,
+    support: SupportCurve,
+    p: number,
+    end: PickedEnd,
+    free: FreeEnds,
+): Result<IEdge> {
     let [first, last] = [support.first, support.last];
-    if (p > first && p < last) {
+    const tol = support.period > 0 ? Precision.Angle : Precision.Distance;
+    if (!free.first && !free.last) {
+        if (p < first - tol || p > last + tol || (p > first + tol && p < last - tol)) {
+            return Result.err("The shared endpoint of a wire edge cannot move");
+        }
+    } else if (free.first !== free.last) {
+        // only the free end moves to p; the shared end anchors the edge
+        if (free.first) {
+            const q = Math.abs(p - last) <= tol ? last : p;
+            [first, last] = [Math.min(q, last), Math.max(q, last)];
+        } else {
+            const q = Math.abs(p - first) <= tol ? first : p;
+            [first, last] = [Math.min(first, q), Math.max(first, q)];
+        }
+    } else if (p > first && p < last) {
         if (end === "first" || (end === undefined && p - first < last - p)) {
             first = p;
         } else {
@@ -236,13 +275,27 @@ function edgeThroughParameter(edge: IEdge, support: SupportCurve, p: number, end
 }
 
 /**
- * Extend (or trim) two straight edges or arcs until they meet. `point1` and
- * `point2` are the points where the user picked the edges, in the same space
- * as the edges; they decide which end of an edge is extended or kept.
+ * Extend (or trim) the target edge until it meets the boundary edge. `point1`
+ * and `point2` are the points where the user picked the edges, in the same
+ * space as the edges; they decide which end of an edge is extended or kept.
+ * The boundary edge is always met at the corner of the two support curves -
+ * even when its own geometry does not reach the corner; `modifyBoundary`
+ * only decides whether the boundary edge is also extended (or cut back)
+ * along its support curve to the corner. `free1` and `free2` say which ends
+ * of each edge may move: a shared endpoint of a wire edge never moves, so
+ * the wire keeps its connectivity.
  */
-function extendEdgesToCorner(edge1: IEdge, edge2: IEdge, point1?: XYZ, point2?: XYZ): Result<[IEdge, IEdge]> {
-    const s1 = supportCurve(edge1);
-    const s2 = supportCurve(edge2);
+function extendEdgeToBoundary(
+    target: IEdge,
+    boundary: IEdge,
+    modifyBoundary: boolean,
+    free1: FreeEnds,
+    free2: FreeEnds,
+    point1?: XYZ,
+    point2?: XYZ,
+): Result<[IEdge, IEdge | undefined]> {
+    const s1 = supportCurve(target);
+    const s2 = supportCurve(boundary);
     if (s1 === undefined || s2 === undefined) {
         return Result.err("Edges must be straight lines or arcs");
     }
@@ -252,13 +305,15 @@ function extendEdgesToCorner(edge1: IEdge, edge2: IEdge, point1?: XYZ, point2?: 
     const corner =
         s1.period === 0 && s2.period === 0
             ? lineIntersection(s1, s2)
-            : curveIntersection(edge1, s1, edge2, s2, end1, end2);
+            : curveIntersection(target, s1, boundary, s2, end1, end2);
     if (!corner.isOk) return corner.parse();
 
-    const ext1 = edgeThroughParameter(edge1, s1, corner.value.p1, end1);
+    const ext1 = edgeThroughParameter(target, s1, corner.value.p1, end1, free1);
     if (!ext1.isOk) return ext1.parse();
 
-    const ext2 = edgeThroughParameter(edge2, s2, corner.value.p2, end2);
+    if (!modifyBoundary) return Result.ok([ext1.value, undefined]);
+
+    const ext2 = edgeThroughParameter(boundary, s2, corner.value.p2, end2, free2);
     if (!ext2.isOk) {
         ext1.value.dispose();
         return ext2.parse();
@@ -266,119 +321,139 @@ function extendEdgesToCorner(edge1: IEdge, edge2: IEdge, point1?: XYZ, point2?: 
     return Result.ok([ext1.value, ext2.value]);
 }
 
-/** Splice the extended pair into the wire edges in place of the two old edges. */
-function spliceExtendedEdges(allEdges: IEdge[], corner: OrderedCorner, extended: [IEdge, IEdge]): IEdge[] {
-    const [ext1, ext2] = extended;
-    const { index1, index2 } = corner;
-    if (index1 === allEdges.length - 1) {
-        // wrap: the corner spans the last and the first edge
-        return [ext2, ...allEdges.slice(1, -1), ext1];
-    }
-    return [...allEdges.slice(0, index1), ext1, ext2, ...allEdges.slice(index2 + 1)];
-}
-
 /**
- * Extend two straight edges or arcs until they meet. The edges can be two
- * standalone edge bodies or two adjacent edges of a wire; each edge is
- * prolonged (or cut back) along its support curve up to the intersection of
- * the two curves. The point where an edge was picked decides which of its
- * ends moves to the corner when the geometry leaves a choice.
+ * Extend an edge until it meets a boundary edge. The target edge can be a
+ * standalone edge body or an edge of a wire; the boundary edge - picked in a
+ * second step - can be any other standalone edge or wire edge. The target
+ * edge is prolonged (or cut back) along its support curve up to the
+ * intersection of the two curves; the `modifyBoundary` option decides
+ * whether the boundary edge is moved to the corner too. Only a free
+ * endpoint of a wire edge can move - an endpoint shared with another edge
+ * of the wire stays put, so the wire keeps its connectivity. The point
+ * where an edge was picked decides which of its ends moves to the corner
+ * when the geometry leaves a choice.
  */
 @command({
     key: "modify.extend",
     icon: "icon-extend",
 })
 export class ExtendCommand extends MultistepCommand {
+    /** Whether the boundary edge is also extended (or cut back) to the corner. */
+    @property("option.command.modifyBoundary")
+    get modifyBoundary() {
+        return this.getPrivateValue("modifyBoundary", true);
+    }
+    set modifyBoundary(value: boolean) {
+        this.setProperty("modifyBoundary", value);
+    }
+
     protected override executeMainTask() {
         Transaction.execute(this.document, `excute ${Object.getPrototypeOf(this).data.name}`, () => {
-            const shapes = this.stepDatas[0].shapes;
-            const parent = (shapes[0].shape as ISubEdgeShape).parent;
+            const target = this.stepDatas[0].shapes[0];
+            const boundary = this.stepDatas[1].shapes[0];
 
-            if (parent.shapeType === ShapeTypes.edge) {
-                this.extendStandaloneEdges(shapes);
+            // bake the transforms in: the edges and the pick points are all in world space
+            const [edge1, edge2] = [target, boundary].map((x) => {
+                const edge = x.shape.transformedMul(x.transform) as IEdge;
+                this.disposeStack.add(edge);
+                return edge;
+            });
+
+            const free1 = ExtendCommand.freeEndsOf(target);
+            const free2 = ExtendCommand.freeEndsOf(boundary);
+            const extended = extendEdgeToBoundary(
+                edge1,
+                edge2,
+                this.modifyBoundary,
+                free1,
+                free2,
+                target.point,
+                boundary.point,
+            );
+            if (!extended.isOk) {
+                PubSub.default.pub("displayError", extended.error);
                 return;
             }
 
-            this.extendWireEdges(shapes, parent);
+            this.replaceEdges(target, boundary, extended.value);
+            this.document.visual.update();
         });
     }
 
-    /** Extend two adjacent edges of a wire until they meet and rebuild the wire. */
-    private extendWireEdges(shapes: VisualShapeData[], wire: IShape) {
-        const node = shapes[0].owner.node as ShapeNode;
-        const newWire = this.computeExtendedWire(shapes, wire);
-        if (!newWire.isOk) {
-            PubSub.default.pub("displayError", newWire.error);
-            return;
-        }
-        replaceShapeNode(node, newWire.value);
+    /** Which ends of the picked edge may move: a shared endpoint of a wire edge never moves. */
+    private static freeEndsOf(data: VisualShapeData): FreeEnds {
+        const sub = data.shape as ISubEdgeShape;
+        return sub.parent.shapeType === ShapeTypes.wire
+            ? freeEnds(sub.parent, sub)
+            : { first: true, last: true };
     }
 
-    private computeExtendedWire(shapes: VisualShapeData[], wire: IShape): Result<IShape> {
-        const allEdges = wire.findSubShapes(ShapeTypes.edge) as IEdge[];
-        const corner = orderCornerEdges(
-            allEdges,
-            shapes[0].shape as ISubEdgeShape,
-            shapes[1].shape as ISubEdgeShape,
-        );
-        if (corner === undefined || (corner.index1 + 1) % allEdges.length !== corner.index2) {
-            return Result.err("Edges must be adjacent edges of the wire.");
-        }
+    /** Splice the extended edges back into the document. */
+    private replaceEdges(
+        target: VisualShapeData,
+        boundary: VisualShapeData,
+        extended: [IEdge, IEdge | undefined],
+    ) {
+        const targetParent = (target.shape as ISubEdgeShape).parent;
+        const boundaryParent = (boundary.shape as ISubEdgeShape).parent;
+        const sameWire =
+            targetParent.shapeType === ShapeTypes.wire &&
+            boundaryParent.shapeType === ShapeTypes.wire &&
+            boundaryParent.isPartner(targetParent);
 
-        // the pick points are in world space, the wire edges in node-local space
-        const [point0, point1] = shapes.map((x) => this.localPickPoint(x));
-        const [point1st, point2nd] = corner.edge1 === shapes[0].shape ? [point0, point1] : [point1, point0];
-        const extended = extendEdgesToCorner(corner.edge1, corner.edge2, point1st, point2nd);
-        if (!extended.isOk) return extended.parse();
-
-        return shapeFactory.wire(spliceExtendedEdges(allEdges, corner, extended.value));
-    }
-
-    /** The point where the shape was picked, converted from world to node-local space. */
-    private localPickPoint(data: VisualShapeData): XYZ | undefined {
-        return data.point === undefined ? undefined : data.transform.invert()?.ofPoint(data.point);
-    }
-
-    /** Extend two standalone edge bodies until they meet, keeping them as separate edges. */
-    private extendStandaloneEdges(shapes: VisualShapeData[]) {
-        if (shapes.length !== 2) {
-            PubSub.default.pub("displayError", I18n.translate("error.select.twoEdges"));
+        if (sameWire) {
+            // both edges live in the same wire: rebuild it once with both replacements
+            const replacements: [VisualShapeData, IEdge][] = [[target, extended[0]]];
+            if (extended[1] !== undefined) replacements.push([boundary, extended[1]]);
+            const newWire = this.computeExtendedWire(targetParent, replacements);
+            if (!newWire.isOk) {
+                PubSub.default.pub("displayError", newWire.error);
+                return;
+            }
+            replaceShapeNode(target.owner.node as ShapeNode, newWire.value);
             return;
         }
 
-        const [edge1, edge2] = shapes.map((x) => {
-            const edge = x.shape.transformedMul(x.transform) as IEdge;
-            this.disposeStack.add(edge);
-            return edge;
-        });
-
-        // the edges were transformed to world space, so the pick points can be used as-is
-        const extended = extendEdgesToCorner(edge1, edge2, shapes[0].point, shapes[1].point);
-        if (!extended.isOk) {
-            PubSub.default.pub("displayError", extended.error);
-            return;
-        }
-
-        this.replaceStandaloneNodes(shapes, extended.value);
+        this.replaceEdge(target, extended[0]);
+        if (extended[1] !== undefined) this.replaceEdge(boundary, extended[1]);
     }
 
     /**
-     * Replace the two standalone edge nodes by their extended versions. The
-     * extended geometry is in world space (the transforms were baked in), so
-     * no transform is copied.
+     * Replace a picked edge by its extended version, which is in world space
+     * (the transform was baked in). An edge of a wire is spliced back into the
+     * wire; a standalone edge node is swapped for a new one holding the world
+     * geometry, so no transform is copied.
      */
-    private replaceStandaloneNodes(shapes: VisualShapeData[], extended: [IEdge, IEdge]) {
-        const [ext1, ext2] = extended;
-        const node1 = shapes[0].owner.node as ShapeNode;
-        const node2 = shapes[1].owner.node as ShapeNode;
-        const container1 = node1.parent ?? this.document.modelManager.rootNode;
-        const container2 = node2.parent ?? this.document.modelManager.rootNode;
+    private replaceEdge(data: VisualShapeData, worldEdge: IEdge) {
+        const parent = (data.shape as ISubEdgeShape).parent;
+        if (parent.shapeType === ShapeTypes.wire) {
+            const newWire = this.computeExtendedWire(parent, [[data, worldEdge]]);
+            if (!newWire.isOk) {
+                PubSub.default.pub("displayError", newWire.error);
+                return;
+            }
+            replaceShapeNode(data.owner.node as ShapeNode, newWire.value);
+            return;
+        }
 
-        container1.add(this.standaloneEdgeNode(node1, ext1));
-        container2.add(this.standaloneEdgeNode(node2, ext2));
-        node1.parent?.remove(node1);
-        node2.parent?.remove(node2);
-        this.document.visual.update();
+        const node = data.owner.node as ShapeNode;
+        (node.parent ?? this.document.modelManager.rootNode).add(this.standaloneEdgeNode(node, worldEdge));
+        node.parent?.remove(node);
+    }
+
+    /** Rebuild a wire with the given sub-edges replaced by their world-space extended versions. */
+    private computeExtendedWire(wire: IShape, replacements: [VisualShapeData, IEdge][]): Result<IShape> {
+        const edges = wire.findSubShapes(ShapeTypes.edge) as IEdge[];
+        for (const [data, worldEdge] of replacements) {
+            const index = edges.findIndex((x) => x.isEqual(data.shape as ISubEdgeShape));
+            if (index < 0) return Result.err("The edge must belong to the wire.");
+
+            // the wire is rebuilt in node-local space
+            const inverse = data.transform.invert();
+            if (inverse === undefined) return Result.err("The node transform is not invertible.");
+            edges[index] = worldEdge.transformedMul(inverse) as IEdge;
+        }
+        return shapeFactory.wire(edges);
     }
 
     private standaloneEdgeNode(source: ShapeNode, shape: IEdge) {
@@ -390,45 +465,36 @@ export class ExtendCommand extends MultistepCommand {
         });
     }
 
-    /**
-     * Only standalone edge bodies and wire edges can be extended. The second
-     * edge can only be picked on the same shape as the first one: a wire edge
-     * must share the first edge's wire, and a standalone edge can only be
-     * paired with another standalone edge.
-     */
+    /** Only standalone edge bodies and wire edges can be extended. */
     private readonly _edgeFilter: IShapeFilter = {
-        allow: (shape) => this.canPickEdge(shape as ISubEdgeShape),
+        allow: (shape) => ExtendCommand.isExtendableEdge(shape as ISubEdgeShape),
     };
 
-    private canPickEdge(shape: ISubEdgeShape): boolean {
-        const parent = shape.parent;
-        if (parent === undefined) return false;
-        if (parent.shapeType !== ShapeTypes.edge && parent.shapeType !== ShapeTypes.wire) return false;
+    private static isExtendableEdge(shape: ISubEdgeShape): boolean {
+        return shape.parent?.shapeType === ShapeTypes.edge || shape.parent?.shapeType === ShapeTypes.wire;
+    }
 
-        const selected = this.document.selection.getSelectedShapes();
-        if (selected.length >= 2) {
-            // allow re-picking an already selected edge so it can be toggled off
-            return selected.some((x) => x.shape.isEqual(shape));
-        }
+    /** Any standalone edge or wire edge can be the boundary, except the target edge itself. */
+    private readonly _boundaryFilter: IShapeFilter = {
+        allow: (shape) => this.canPickBoundary(shape as ISubEdgeShape),
+    };
 
-        const firstParent = (selected.at(0)?.shape as ISubEdgeShape | undefined)?.parent;
-        if (firstParent === undefined) return true;
-        if (firstParent.shapeType === ShapeTypes.edge) {
-            return parent.shapeType === ShapeTypes.edge;
-        }
-        return parent.shapeType === ShapeTypes.wire && parent.isPartner(firstParent);
+    private canPickBoundary(shape: ISubEdgeShape): boolean {
+        if (!ExtendCommand.isExtendableEdge(shape)) return false;
+
+        const target = this.stepDatas.at(0)?.shapes.at(0)?.shape as ISubEdgeShape | undefined;
+        return target !== undefined && !shape.isEqual(target);
     }
 
     protected override getSteps() {
         return [
-            new SelectShapeStep(ShapeTypes.edge, "prompt.select.edges", {
-                multiple: true,
+            new SelectShapeStep(ShapeTypes.edge, "prompt.select.extendTarget", {
                 shapeFilter: this._edgeFilter,
-                canFinish: this._canFinish,
+            }),
+            new SelectShapeStep(ShapeTypes.edge, "prompt.select.boundary", {
+                shapeFilter: this._boundaryFilter,
+                keepSelection: true,
             }),
         ];
     }
-
-    /** Extending needs exactly two edges - finish the pick once both are selected. */
-    private readonly _canFinish = (selected: VisualShapeData[]) => selected.length === 2;
 }
