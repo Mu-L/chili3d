@@ -233,9 +233,14 @@ export class CommandContext extends HTMLElement implements IDisposable {
     }
 
     private newCombobox(g: Property, combobox: Combobox<any>) {
+        // The command property is the source of truth (CancelableCommand restores it from the
+        // properties cache), while the combobox is shared across command instances — derive the
+        // selection from the property value instead of the shared combobox.selectedIndex.
+        const valueIndex = combobox.items.indexOf((this.command as any)[g.name]);
+        const selectedIndex = valueIndex < 0 ? combobox.selectedIndex : valueIndex;
         const options = combobox.items.map((item, index) => {
             return option({
-                selected: index === combobox.selectedIndex,
+                selected: index === selectedIndex,
                 textContent: I18n.isI18nKey(item)
                     ? new Localize(item)
                     : (combobox.converter?.convert(item).unchecked() ?? String(item)),

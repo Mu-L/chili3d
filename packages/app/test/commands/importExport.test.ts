@@ -6,6 +6,7 @@ import {
     CancelableCommand,
     getCurrentApplication,
     type IApplication,
+    PropertyUtils,
     PubSub,
     SelectNodeStep,
     setCurrentApplication,
@@ -99,12 +100,18 @@ describe("Export", () => {
         }
     });
 
-    test("constructor should select index 0 when format not in combobox", () => {
+    test("constructor should populate combobox with the export formats", () => {
         const restoreApp = installExportApp();
         try {
-            const cmd = new Export();
-            // Format ".step" should be in the list, so selectedIndex maps accordingly
-            expect(cmd.format).toBe(".step");
+            new Export();
+            const combobox = PropertyUtils.getProperty(Export.prototype, "format")!.combobox!;
+            expect(Array.from(combobox.items)).toEqual([
+                ".step",
+                ".stl",
+                ".stl binary",
+                ".ply",
+                ".ply binary",
+            ]);
         } finally {
             restoreApp();
         }

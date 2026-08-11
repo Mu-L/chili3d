@@ -2,7 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 import type { AsyncController, I18nKeys, Locale } from "@chili3d/core";
-import { Combobox, CommandStore, I18n, Observable, PubSub, property } from "@chili3d/core";
+import { Combobox, CommandStore, I18n, Observable, PropertyUtils, PubSub, property } from "@chili3d/core";
 import { afterEach, beforeEach, describe, expect, rs, test } from "@rstest/core";
 
 // CSS module under test
@@ -229,6 +229,30 @@ describe("CommandContext", () => {
                 target: { selectedIndex: 1 },
             });
             expect(command.choice).toBe("y");
+        });
+
+        test("combobox selection should follow the command property value, not the shared combobox state", () => {
+            const combobox = PropertyUtils.getProperty(TestCommand.prototype, "choiceProp")!.combobox!;
+            const originalIndex = combobox.selectedIndex;
+            try {
+                // Stale shared state left over from a previous execution must not win over
+                // the command property value (default "x").
+                combobox.selectedIndex = 1;
+                const ctx1 = track(new CommandContext(new TestCommand()));
+                const options1 = mustQuery<HTMLSelectElement>(ctx1, "select").querySelectorAll("option");
+                expect((options1[0] as any)._selected).toBe(true);
+                expect((options1[1] as any)._selected).toBe(false);
+
+                combobox.selectedIndex = 0;
+                const command = new TestCommand();
+                command.choice = "y";
+                const ctx2 = track(new CommandContext(command));
+                const options2 = mustQuery<HTMLSelectElement>(ctx2, "select").querySelectorAll("option");
+                expect((options2[0] as any)._selected).toBe(false);
+                expect((options2[1] as any)._selected).toBe(true);
+            } finally {
+                combobox.selectedIndex = originalIndex;
+            }
         });
     });
 

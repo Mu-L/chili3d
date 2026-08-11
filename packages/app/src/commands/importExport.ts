@@ -64,8 +64,6 @@ export class Export extends CancelableCommand {
         property.combobox!.items.clear();
         // In the constructor, this.application has not been assigned yet, so use the global app.
         property.combobox!.items.push(...app.dataExchange.exportFormats());
-        const index = property.combobox!.items.indexOf(this.format);
-        property.combobox!.selectedIndex = index < 0 ? 0 : index;
     }
 
     protected async executeAsync() {
