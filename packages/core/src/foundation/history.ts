@@ -150,6 +150,16 @@ export class NodeLinkedListHistoryRecord implements IHistoryRecord {
         this.records.length = 0;
     }
 
+    // A recorded anchor can go stale over time (e.g. the node was removed outside of the
+    // history); fall back to undefined so the node at least returns to the target parent
+    // instead of the move being silently skipped.
+    private static normalizePrevious(
+        previous: INode | undefined,
+        parent: INodeLinkedList | undefined,
+    ): INode | undefined {
+        return previous?.parent === parent ? previous : undefined;
+    }
+
     private handleUndo(record: NodeRecord): void {
         switch (record.action) {
             case "add":
@@ -162,7 +172,11 @@ export class NodeLinkedListHistoryRecord implements IHistoryRecord {
                 record.oldParent?.add(record.node);
                 break;
             case "move":
-                record.newParent?.move(record.node, record.oldParent!, record.oldPrevious);
+                record.newParent?.move(
+                    record.node,
+                    record.oldParent!,
+                    NodeLinkedListHistoryRecord.normalizePrevious(record.oldPrevious, record.oldParent),
+                );
                 break;
             case "insertAfter":
                 record.newParent?.remove(record.node);
@@ -185,7 +199,11 @@ export class NodeLinkedListHistoryRecord implements IHistoryRecord {
                 record.oldParent?.transfer(record.node);
                 break;
             case "move":
-                record.oldParent?.move(record.node, record.newParent!, record.newPrevious);
+                record.oldParent?.move(
+                    record.node,
+                    record.newParent!,
+                    NodeLinkedListHistoryRecord.normalizePrevious(record.newPrevious, record.newParent),
+                );
                 break;
             case "insertAfter":
                 record.newParent?.insertAfter(record.newPrevious, record.node);

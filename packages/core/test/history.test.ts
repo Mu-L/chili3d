@@ -2,7 +2,15 @@
 // See LICENSE file in the project root for full license information.
 
 import type { IHistoryRecord, NodeRecord } from "../src";
-import { ArrayRecord, History, NodeLinkedListHistoryRecord, PropertyHistoryRecord } from "../src";
+import {
+    ArrayRecord,
+    FolderNode,
+    History,
+    NodeLinkedListHistoryRecord,
+    PropertyHistoryRecord,
+    Transaction,
+} from "../src";
+import { createPlainNode, TestDocument } from "../test-utils";
 
 describe("History", () => {
     class TestClass {
@@ -255,12 +263,13 @@ describe("History", () => {
             },
         };
         const mockNode = { dispose() {} };
-        const mockOldPrevious = {};
+        const mockOldParent = {};
+        const mockOldPrevious = { parent: mockOldParent };
         const records: NodeRecord[] = [
             {
                 node: mockNode as any,
                 action: "move" as const,
-                oldParent: {} as any,
+                oldParent: mockOldParent as any,
                 newParent: mockNewParent as any,
                 oldPrevious: mockOldPrevious as any,
             },
@@ -269,6 +278,56 @@ describe("History", () => {
         expect(moveCalled).toBe(true);
         expect(moveArgs[0]).toBe(mockNode);
         expect(moveArgs[2]).toBe(mockOldPrevious);
+    });
+
+    test("NodeLinkedListHistoryRecord undo 'move' falls back when oldPrevious is not in oldParent", () => {
+        let moveArgs: unknown[] = [];
+        const mockNewParent = {
+            move(...args: unknown[]) {
+                moveArgs = args;
+            },
+        };
+        const mockNode = { dispose() {} };
+        const mockOldParent = {};
+        const mockOldPrevious = { parent: {} }; // belongs to another parent
+        const records: NodeRecord[] = [
+            {
+                node: mockNode as any,
+                action: "move" as const,
+                oldParent: mockOldParent as any,
+                newParent: mockNewParent as any,
+                oldPrevious: mockOldPrevious as any,
+            },
+        ];
+        new NodeLinkedListHistoryRecord(records).undo();
+        expect(moveArgs[0]).toBe(mockNode);
+        expect(moveArgs[1]).toBe(mockOldParent);
+        expect(moveArgs[2]).toBeUndefined();
+    });
+
+    test("NodeLinkedListHistoryRecord redo 'move' falls back when newPrevious is not in newParent", () => {
+        let moveArgs: unknown[] = [];
+        const mockOldParent = {
+            move(...args: unknown[]) {
+                moveArgs = args;
+            },
+        };
+        const mockNode = { dispose() {} };
+        const mockNewParent = {};
+        const mockNewPrevious = { parent: {} }; // belongs to another parent
+        const records: NodeRecord[] = [
+            {
+                node: mockNode as any,
+                action: "move" as const,
+                oldParent: mockOldParent as any,
+                newParent: mockNewParent as any,
+                newPrevious: mockNewPrevious as any,
+            },
+        ];
+        new NodeLinkedListHistoryRecord(records).redo();
+        expect(moveArgs[0]).toBe(mockNode);
+        expect(moveArgs[1]).toBe(mockNewParent);
+        expect(moveArgs[2]).toBeUndefined();
     });
 
     test("ArrayRecord undo reverse order", () => {
@@ -283,6 +342,57 @@ describe("History", () => {
         expect(obj.val).toBe(3);
         arrayRecord.undo();
         expect(obj.val).toBe(0);
+    });
+
+    test("ArrayRecord undo restores moved node when its anchor was deleted outside history", () => {
+        const doc = new TestDocument();
+        const folderF = new FolderNode({ document: doc, name: "F" });
+        const folderG = new FolderNode({ document: doc, name: "G" });
+        const p = createPlainNode("p");
+        const a = createPlainNode("a");
+        folderF.add(p, a);
+
+        Transaction.execute(doc, "move node", () => {
+            folderF.move(a, folderG);
+        });
+
+        // the move record's anchor (p) is removed without a history record
+        doc.history.disabled = true;
+        folderF.remove(p);
+        doc.history.disabled = false;
+
+        doc.history.undo();
+
+        // without anchor normalization the move undo is silently skipped and `a` stays in G
+        expect(folderF.children()).toEqual([a]);
+        expect(folderG.children()).toEqual([]);
+    });
+
+    test("ArrayRecord redo restores moved node when its anchor was deleted outside history", () => {
+        const doc = new TestDocument();
+        const folderF = new FolderNode({ document: doc, name: "F" });
+        const folderG = new FolderNode({ document: doc, name: "G" });
+        const b = createPlainNode("b");
+        const a = createPlainNode("a");
+        folderF.add(a);
+        folderG.add(b);
+
+        Transaction.execute(doc, "move node", () => {
+            folderF.move(a, folderG, b);
+        });
+        doc.history.undo();
+        expect(folderF.children()).toEqual([a]);
+
+        // the redo anchor (b) is removed without a history record
+        doc.history.disabled = true;
+        folderG.remove(b);
+        doc.history.disabled = false;
+
+        doc.history.redo();
+
+        // without anchor normalization the move redo is silently skipped and `a` stays in F
+        expect(folderF.children()).toEqual([]);
+        expect(folderG.children()).toEqual([a]);
     });
 
     test("ArrayRecord name and dispose", () => {
