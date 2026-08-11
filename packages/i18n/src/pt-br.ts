@@ -71,5 +71,9 @@ export default {
         "command.edit.undo": "Desfazer",
         "command.file.export": "Exportar",
         "command.file.import": "Importar",
+        "home.recent": "Projetos recentes",
+        "home.recent.empty": "Nenhum documento recente. Crie ou abra um documento para começar.",
+        "home.videos": "Vídeos da comunidade",
+        "home.welcome.subtitle": "Projete e modele em 3D diretamente no navegador.",
     },
 } satisfies Locale;
