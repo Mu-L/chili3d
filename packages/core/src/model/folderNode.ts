@@ -232,6 +232,22 @@ export class FolderNode extends Node implements INodeLinkedList {
     }
 
     move(child: INode, newParent: FolderNode, previousSibling?: INode): void {
+        if (!this.validateChild(child)) return;
+
+        if (previousSibling === child) {
+            Logger.warn(`Cannot move ${child.name} relative to itself`);
+            return;
+        }
+
+        let ancestor: INode | undefined = newParent;
+        while (ancestor !== undefined) {
+            if (ancestor === child) {
+                Logger.warn(`Cannot move ${child.name} into itself or its descendant`);
+                return;
+            }
+            ancestor = ancestor.parent;
+        }
+
         if (previousSibling && previousSibling.parent !== newParent) {
             Logger.warn(`${previousSibling.name} is not a child node of the ${newParent.name} node`);
             return;

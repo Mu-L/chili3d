@@ -257,7 +257,10 @@ export class Tree extends HTMLElement {
 
     private canDrop(event: DragEvent) {
         const node = this.getTreeItem(event.target as HTMLElement)?.node;
-        if (node === undefined) return false;
+        return node !== undefined && this.canDropNode(node);
+    }
+
+    private canDropNode(node: INode) {
         if (this.dragging?.includes(node)) return false;
         let parent = node.parent;
         while (parent !== undefined) {
@@ -273,7 +276,7 @@ export class Tree extends HTMLElement {
         this.clearDropTargetHighlight();
 
         const node = this.getTreeItem(event.target as HTMLElement)?.node;
-        if (node === undefined) return;
+        if (node === undefined || !this.canDropNode(node)) return;
         Transaction.execute(this.document, "move node", () => {
             const isLinkList = NodeUtils.isLinkedListNode(node);
             const newParent = isLinkList ? (node as INodeLinkedList) : node.parent;

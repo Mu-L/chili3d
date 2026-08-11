@@ -67,6 +67,8 @@ class MockNode {
     removePropertyChanged(handler: PropertyHandler) {
         this.handlers.delete(handler);
     }
+
+    move = rs.fn((_child: unknown, _newParent: unknown, _previousSibling?: unknown) => {});
 }
 
 // tree.ts checks `node instanceof VisualNode` against the mocked class; link the
@@ -283,6 +285,45 @@ describe("Tree", () => {
             fixture.doc.emitPropChanged("currentNode", fixture.model1);
             expect(model1El.classList.contains("tree-current")).toBe(false);
             expect(model2El.classList.contains("tree-current")).toBe(true);
+        });
+    });
+
+    describe("drop validation", () => {
+        const fireDrag = (target: HTMLElement, type: string) => {
+            target.dispatchEvent(new Event(type, { bubbles: true }));
+        };
+
+        test("should move node when dropping onto a valid sibling", () => {
+            fixture = createFixture();
+            const model1El = fixture.tree.treeItem(fixture.model1 as unknown as INode)!;
+            const model2El = fixture.tree.treeItem(fixture.model2 as unknown as INode)!;
+
+            fireDrag(model1El, "dragstart");
+            fireDrag(model2El, "drop");
+
+            expect(fixture.groupA.move).toHaveBeenCalledWith(fixture.model1, fixture.groupA, fixture.model2);
+        });
+
+        test("should not move when dropping onto the dragged node itself", () => {
+            fixture = createFixture();
+            const model1El = fixture.tree.treeItem(fixture.model1 as unknown as INode)!;
+
+            fireDrag(model1El, "dragstart");
+            fireDrag(model1El, "drop");
+
+            expect(fixture.groupA.move).not.toHaveBeenCalled();
+        });
+
+        test("should not move when dropping onto a descendant of a dragged group", () => {
+            fixture = createFixture();
+            const groupAEl = fixture.tree.treeItem(fixture.groupA as unknown as INode)!;
+            const model1El = fixture.tree.treeItem(fixture.model1 as unknown as INode)!;
+
+            fireDrag(groupAEl, "dragstart");
+            fireDrag(model1El, "drop");
+
+            expect(fixture.root.move).not.toHaveBeenCalled();
+            expect(fixture.groupA.move).not.toHaveBeenCalled();
         });
     });
 });

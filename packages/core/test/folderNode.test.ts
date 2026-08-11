@@ -343,6 +343,62 @@ describe("FolderNode", () => {
             expect(folder1.count).toBe(1);
             expect(folder2.count).toBe(0);
         });
+
+        test("should not move child relative to itself", () => {
+            const folder = new FolderNode({ document: doc, name: "folder" });
+            const a = createPlainNode("a");
+            const x = createPlainNode("x");
+            folder.add(a, x);
+
+            folder.move(x, folder, x);
+
+            expect(folder.count).toBe(2);
+            expect(folder.firstChild).toBe(a);
+            expect(folder.lastChild).toBe(x);
+            expect(a.nextSibling).toBe(x);
+            expect(x.previousSibling).toBe(a);
+            expect(x.nextSibling).toBeUndefined();
+            expect(x.parent).toBe(folder);
+        });
+
+        test("should not move folder into itself", () => {
+            const root = new FolderNode({ document: doc, name: "root" });
+            const folder = new FolderNode({ document: doc, name: "folder" });
+            root.add(folder);
+
+            root.move(folder, folder);
+
+            expect(root.count).toBe(1);
+            expect(root.firstChild).toBe(folder);
+            expect(folder.parent).toBe(root);
+        });
+
+        test("should not move folder into its descendant", () => {
+            const root = new FolderNode({ document: doc, name: "root" });
+            const folder = new FolderNode({ document: doc, name: "folder" });
+            const subFolder = new FolderNode({ document: doc, name: "subFolder" });
+            root.add(folder);
+            folder.add(subFolder);
+
+            root.move(folder, subFolder);
+
+            expect(root.count).toBe(1);
+            expect(folder.parent).toBe(root);
+            expect(subFolder.parent).toBe(folder);
+        });
+
+        test("should not move node that is not a child of this folder", () => {
+            const folder1 = new FolderNode({ document: doc, name: "folder1" });
+            const folder2 = new FolderNode({ document: doc, name: "folder2" });
+            const child = createPlainNode("child1");
+            folder2.add(child);
+
+            folder1.move(child, folder1);
+
+            expect(folder1.count).toBe(0);
+            expect(folder2.count).toBe(1);
+            expect(child.parent).toBe(folder2);
+        });
     });
 
     describe("visibility propagation", () => {
