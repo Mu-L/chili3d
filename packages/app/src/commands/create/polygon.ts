@@ -25,6 +25,8 @@ import { CreateFaceableCommand } from "../createCommand";
     icon: "icon-toPoly",
 })
 export class Polygon extends CreateFaceableCommand {
+    private isConfirm = false;
+
     @property("common.confirm")
     readonly confirm = () => {
         this.controller?.success();
@@ -48,7 +50,7 @@ export class Polygon extends CreateFaceableCommand {
             this.controller = new AsyncController();
             const data = await step.execute(this.document, this.controller);
             if (data === undefined) {
-                return this.controller.result?.status === "success";
+                return this.isConfirm;
             }
             this.stepDatas.push(data);
             if (this.isClose(data)) {
@@ -83,6 +85,9 @@ export class Polygon extends CreateFaceableCommand {
                     when: () => this.stepDatas.length > 2,
                 },
             ],
+            onKeyDown: (e) => {
+                this.isConfirm = e.code === "Space" || e.code === "Enter";
+            },
         };
     };
 

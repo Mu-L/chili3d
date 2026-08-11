@@ -145,6 +145,7 @@ export function seedStepDatas<C>(cmd: C, datas: SnapResult[]): void {
 const fakeMesh = { edges: { type: "edges", positions: [], lineWidth: 0, color: 0 } };
 const fakeShape = {
     edgesMeshPosition: () => ({ type: "edges", positions: [] }),
+    isClosed: () => true,
     isNull: () => false,
     toFace: () => Result.ok(fakeShape),
     shellSewing: () => fakeShape,
