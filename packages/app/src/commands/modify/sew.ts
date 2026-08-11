@@ -13,6 +13,7 @@ import {
     Transaction,
     VisualStates,
 } from "@chili3d/core";
+import { repairShape } from "./repair";
 
 @command({
     key: "modify.sew",
@@ -27,11 +28,13 @@ export class Sew extends MultistepCommand {
                 PubSub.default.pub("showToast", "error.default:{0}", result.error);
                 return;
             }
+            const repaired = repairShape(result.value, 1e-7);
+            result.value.dispose();
 
             const node = new EditableShapeNode({
                 document: this.document,
                 name: "sewed",
-                shape: result.value,
+                shape: repaired,
             });
             this.document.modelManager.rootNode.add(node);
 

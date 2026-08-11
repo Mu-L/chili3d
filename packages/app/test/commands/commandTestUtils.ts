@@ -145,7 +145,11 @@ export function seedStepDatas<C>(cmd: C, datas: SnapResult[]): void {
 const fakeMesh = { edges: { type: "edges", positions: [], lineWidth: 0, color: 0 } };
 const fakeShape = {
     edgesMeshPosition: () => ({ type: "edges", positions: [] }),
+    isNull: () => false,
     toFace: () => Result.ok(fakeShape),
+    shellSewing: () => fakeShape,
+    fixShape: () => fakeShape,
+    fixSmallFace: () => fakeShape,
     mesh: fakeMesh,
     dispose: () => {},
 };
@@ -275,6 +279,10 @@ export function mockShape(overrides: Partial<IShape> = {}): MockShape {
         dispose: () => {},
         transformedMul: track("transformedMul"),
         transformed: track("transformed"),
+        shellSewing: track("shellSewing"),
+        fixShape: track("fixShape"),
+        fixSmallFace: track("fixSmallFace"),
+        setTolerance: track("setTolerance"),
         ...overrides,
     } as unknown as MockShape;
     shape.calls = calls;
