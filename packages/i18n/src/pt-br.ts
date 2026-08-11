@@ -40,6 +40,7 @@ export default {
         "command.convert.toSolid": "Para Sólido",
         "command.convert.toWire": "Para Wireframe",
         "command.create.arc": "Arco",
+        "command.create.arcTTR": "Arco TTR",
         "command.create.box": "Caixa",
         "command.create.circle": "Círculo",
         "command.create.copyShape": "Copiar Forma",

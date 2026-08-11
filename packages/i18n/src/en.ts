@@ -57,6 +57,7 @@ export default {
         "command.create.arc": "Arc",
         "command.create.arc2point": "2-Point Arc",
         "command.create.arc3point": "3-Point Arc",
+        "command.create.arcTTR": "Arc TTR",
         "command.create.bezier": "Bezier",
         "command.create.box": "Box",
         "command.create.circle": "Circle",

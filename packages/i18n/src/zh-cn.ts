@@ -57,6 +57,7 @@ export default {
         "command.create.arc": "圆弧",
         "command.create.arc2point": "两点圆弧",
         "command.create.arc3point": "三点圆弧",
+        "command.create.arcTTR": "相切相切半径圆弧",
         "command.create.bezier": "贝塞尔曲线",
         "command.create.box": "立方体",
         "command.create.circle": "圆形",

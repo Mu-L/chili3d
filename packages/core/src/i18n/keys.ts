@@ -52,6 +52,7 @@ export const I18N_KEYS = [
     "command.create.arc",
     "command.create.arc2point",
     "command.create.arc3point",
+    "command.create.arcTTR",
     "command.create.bezier",
     "command.create.box",
     "command.create.circle",

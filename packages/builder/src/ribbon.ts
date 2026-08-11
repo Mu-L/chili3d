@@ -17,7 +17,7 @@ export const DefaultRibbon: RibbonTabProfile[] = [
                     },
                     {
                         type: "split",
-                        items: ["create.arc", "create.arc2point", "create.arc3point"],
+                        items: ["create.arc", "create.arc2point", "create.arc3point", "create.arcTTR"],
                     },
                     {
                         type: "split",

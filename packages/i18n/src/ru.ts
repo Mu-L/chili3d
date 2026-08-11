@@ -59,6 +59,7 @@ export default {
         "command.create.arc": "Дуга",
         "command.create.arc2point": "Дуга в 2 точки",
         "command.create.arc3point": "Дуга в 3 точки",
+        "command.create.arcTTR": "Дуга TTR",
         "command.create.bezier": "Кривая Безье",
         "command.create.box": "Коробка",
         "command.create.circle": "Окружность",
