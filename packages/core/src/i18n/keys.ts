@@ -232,6 +232,7 @@ export const I18N_KEYS = [
     "option.command.joinType.arc",
     "option.command.joinType.intersection",
     "option.command.joinType.tangent",
+    "option.command.merge",
     "option.command.modifyBoundary",
     "option.command.pitch",
     "option.command.normalOffset",

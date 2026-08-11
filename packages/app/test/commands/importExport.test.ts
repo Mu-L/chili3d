@@ -222,6 +222,97 @@ describe("Export", () => {
             }
         });
     });
+
+    describe("merge option", () => {
+        test("merge should default to true", () => {
+            const cmd = new Export();
+            expect(cmd.merge).toBe(true);
+        });
+
+        test("merge setter should update property", () => {
+            const cmd = new Export();
+            cmd.merge = false;
+            expect(cmd.merge).toBe(false);
+
+            cmd.merge = true;
+            expect(cmd.merge).toBe(true);
+        });
+
+        test("should export all nodes into one file when merge is true", async () => {
+            const ctx = setupExportContext();
+            try {
+                const cmd = new Export();
+                cmd.merge = true;
+                (cmd as any)._application = ctx.app;
+                (cmd as any).selectNodesAsync = () => Promise.resolve([{ name: "a" }, { name: "b" }]);
+
+                await (cmd as any).executeAsync();
+                expect(ctx.permanentCallback).toBeDefined();
+                await ctx.permanentCallback!();
+
+                expect(ctx.exportedNames).toEqual(["a,b"]);
+                expect(ctx.downloads).toEqual(["a.step"]);
+            } finally {
+                ctx.restore();
+            }
+        });
+
+        test("should export each node into one zip file when merge is false", async () => {
+            const ctx = setupExportContext();
+            try {
+                const cmd = new Export();
+                cmd.merge = false;
+                (cmd as any)._application = ctx.app;
+                (cmd as any).selectNodesAsync = () => Promise.resolve([{ name: "a" }, { name: "b" }]);
+
+                await (cmd as any).executeAsync();
+                expect(ctx.permanentCallback).toBeDefined();
+                await ctx.permanentCallback!();
+
+                expect(ctx.exportedNames).toEqual(["a", "b"]);
+                expect(ctx.downloads).toEqual(["a.zip"]);
+                expect(await zipFileNames(ctx.blobs[0])).toEqual(["a.step", "b.step"]);
+            } finally {
+                ctx.restore();
+            }
+        });
+
+        test("should deduplicate file names in the zip when nodes share a name", async () => {
+            const ctx = setupExportContext();
+            try {
+                const cmd = new Export();
+                cmd.merge = false;
+                (cmd as any)._application = ctx.app;
+                (cmd as any).selectNodesAsync = () => Promise.resolve([{ name: "a" }, { name: "a" }]);
+
+                await (cmd as any).executeAsync();
+                await ctx.permanentCallback!();
+
+                expect(ctx.downloads).toEqual(["a.zip"]);
+                expect(await zipFileNames(ctx.blobs[0])).toEqual(["a-1.step", "a.step"]);
+            } finally {
+                ctx.restore();
+            }
+        });
+
+        test("should download the single file directly when only one node is selected", async () => {
+            const ctx = setupExportContext();
+            try {
+                const cmd = new Export();
+                cmd.merge = false;
+                (cmd as any)._application = ctx.app;
+                (cmd as any).selectNodesAsync = () => Promise.resolve([{ name: "a" }]);
+
+                await (cmd as any).executeAsync();
+                await ctx.permanentCallback!();
+
+                expect(ctx.exportedNames).toEqual(["a"]);
+                expect(ctx.downloads).toEqual(["a.step"]);
+            } finally {
+                ctx.restore();
+            }
+        });
+    });
 });
 
 /** Install an app stub so Export constructor can call app.dataExchange.exportFormats(). */
@@ -246,4 +337,60 @@ function createMockApplicationWithDoc() {
     const app = createMockApplication();
     app.activeView = { document: createMockDocument() } as any;
     return app;
+}
+
+/** Capture the showPermanent callback, dataExchange.export calls and download file names. */
+function setupExportContext() {
+    const ctx = {
+        permanentCallback: undefined as (() => Promise<void>) | undefined,
+        exportedNames: [] as string[],
+        downloads: [] as string[],
+        blobs: [] as Blob[],
+        app: {
+            activeView: { document: createMockDocument() },
+            dataExchange: {
+                export: (_format: string, nodes: { name: string }[]) => {
+                    ctx.exportedNames.push(nodes.map((n) => n.name).join(","));
+                    return Promise.resolve([new ArrayBuffer(8)]);
+                },
+            },
+        },
+        restore: () => {},
+    };
+
+    const originalPub = PubSub.default.pub;
+    PubSub.default.pub = ((channel: string, ...args: unknown[]) => {
+        if (channel === "showPermanent") {
+            ctx.permanentCallback = args[0] as () => Promise<void>;
+        }
+    }) as any;
+
+    // happy-dom/Node Blob mismatch requires stubbing createObjectURL (same as toFile.test.ts)
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    URL.createObjectURL = ((blob: Blob) => {
+        ctx.blobs.push(blob);
+        return "blob:mock-url";
+    }) as typeof URL.createObjectURL;
+    URL.revokeObjectURL = ((_url: string) => {}) as typeof URL.revokeObjectURL;
+
+    const clickSpy = rs.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+        this: HTMLAnchorElement,
+    ) {
+        ctx.downloads.push(this.download);
+    });
+
+    ctx.restore = () => {
+        PubSub.default.pub = originalPub;
+        URL.createObjectURL = originalCreateObjectURL;
+        URL.revokeObjectURL = originalRevokeObjectURL;
+        clickSpy.mockRestore();
+    };
+    return ctx;
+}
+
+async function zipFileNames(blob: Blob): Promise<string[]> {
+    const { default: JSZip } = await import("jszip");
+    const zip = await JSZip.loadAsync(blob);
+    return Object.keys(zip.files).sort();
 }

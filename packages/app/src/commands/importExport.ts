@@ -15,6 +15,7 @@ import {
     property,
     readFilesAsync,
     SelectNodeStep,
+    type VisualNode,
 } from "@chili3d/core";
 import { importFiles } from "../utils";
 
@@ -49,6 +50,14 @@ export class Export extends CancelableCommand {
         this.setProperty("format", value);
     }
 
+    @property("option.command.merge")
+    public get merge() {
+        return this.getPrivateValue("merge", true);
+    }
+    public set merge(value: boolean) {
+        this.setProperty("merge", value);
+    }
+
     constructor() {
         super();
         const property = PropertyUtils.getProperty(Export.prototype, "format")!;
@@ -69,23 +78,54 @@ export class Export extends CancelableCommand {
         PubSub.default.pub(
             "showPermanent",
             async () => {
-                const data = await this.application.dataExchange.export(this.format, nodes);
-                if (!data) return;
-
-                let suffix = this.format;
-
-                if (suffix === ".stl binary") {
-                    suffix = ".stl";
-                } else if (suffix === ".ply binary") {
-                    suffix = ".ply";
-                }
-
                 PubSub.default.pub("showToast", "toast.downloading");
-                download(data, `${nodes[0].name}${suffix}`);
+                if (this.merge || nodes.length === 1) {
+                    await this.exportMergedAsync(nodes);
+                } else {
+                    await this.exportAsZipAsync(nodes);
+                }
             },
             "toast.excuting{0}",
             I18n.translate("command.file.export"),
         );
+    }
+
+    private get suffix() {
+        // ".stl binary" and ".ply binary" share the plain file extension.
+        if (this.format === ".stl binary") return ".stl";
+        if (this.format === ".ply binary") return ".ply";
+        return this.format;
+    }
+
+    private async exportMergedAsync(nodes: VisualNode[]) {
+        const data = await this.application.dataExchange.export(this.format, nodes);
+        if (!data) return;
+        download(data, `${nodes[0].name}${this.suffix}`);
+    }
+
+    // Browsers block multiple automatic downloads, so pack the files into one zip.
+    private async exportAsZipAsync(nodes: VisualNode[]) {
+        const { default: JSZip } = await import("jszip");
+        const zip = new JSZip();
+        const usedNames = new Set<string>();
+
+        for (const node of nodes) {
+            const data = await this.application.dataExchange.export(this.format, [node]);
+            if (!data) continue;
+            zip.file(this.uniqueFileName(node.name, usedNames), new Blob(data));
+        }
+
+        download([await zip.generateAsync({ type: "blob" })], `${nodes[0].name}.zip`);
+    }
+
+    private uniqueFileName(nodeName: string, usedNames: Set<string>) {
+        let fileName = `${nodeName}${this.suffix}`;
+        let counter = 1;
+        while (usedNames.has(fileName)) {
+            fileName = `${nodeName}-${counter++}${this.suffix}`;
+        }
+        usedNames.add(fileName);
+        return fileName;
     }
 
     private async selectNodesAsync() {

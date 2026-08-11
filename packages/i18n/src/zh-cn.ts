@@ -237,6 +237,7 @@ export default {
         "option.command.joinType.arc": "圆弧",
         "option.command.joinType.intersection": "相交",
         "option.command.joinType.tangent": "相切",
+        "option.command.merge": "合并",
         "option.command.modifyBoundary": "同时修改边界",
         "option.command.normalOffset": "法向间距",
         "option.command.offsetMode": "偏移模式",

@@ -237,6 +237,7 @@ export default {
         "option.command.joinType.arc": "Arc",
         "option.command.joinType.intersection": "Intersection",
         "option.command.joinType.tangent": "Tangent",
+        "option.command.merge": "Merge",
         "option.command.modifyBoundary": "Modify boundary",
         "option.command.normalOffset": "Normal Offset",
         "option.command.offsetMode": "Offset Mode",
