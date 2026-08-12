@@ -15,6 +15,7 @@ function mockLineEdge(x1: number, y1: number, x2: number, y2: number): IEdge {
             end: new XYZ({ x: x2, y: y2, z: 0 }),
             valueFn: (t: number) => new XYZ({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t, z: 0 }),
         }),
+        ends: () => [new XYZ({ x: x1, y: y1, z: 0 }), new XYZ({ x: x2, y: y2, z: 0 })],
     }) as unknown as IEdge;
 }
 

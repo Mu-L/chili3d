@@ -223,6 +223,58 @@ describe("GeometryUtils", () => {
             expect(normal.isEqualTo(XYZ.unitZ)).toBe(true);
         });
 
+        test("should sample another uv when the face normal at (0.5, 0.5) is zero", () => {
+            const face = {
+                shapeType: ShapeTypes.face,
+                normal: (u: number, v: number) =>
+                    u === 0.5 && v === 0.5 ? [XYZ.zero, XYZ.zero] : [XYZ.zero, XYZ.unitZ],
+            } as unknown as IFace;
+
+            const normal = GeometryUtils.normal(face);
+
+            expect(normal.isEqualTo(XYZ.unitZ)).toBe(true);
+        });
+
+        test("should warn and return unitZ when the face normal is zero at every sampled uv", () => {
+            const face = {
+                shapeType: ShapeTypes.face,
+                normal: () => [XYZ.zero, XYZ.zero],
+            } as unknown as IFace;
+            const warn = rs.spyOn(console, "warn").mockImplementation(() => {});
+            try {
+                const normal = GeometryUtils.normal(face);
+
+                expect(normal.isEqualTo(XYZ.unitZ)).toBe(true);
+                expect(warn).toHaveBeenCalledWith("Cannot compute face normal, fallback to unitZ");
+            } finally {
+                warn.mockRestore();
+            }
+        });
+
+        test("should use the plane spanned by two parallel line edges", () => {
+            // Two parallel segments along +X, offset 5 in Y => normal = +Z.
+            const edge1 = createMockEdge({ curve: xSegmentCurve() });
+            const edge2 = createMockEdge({ curve: xSegmentCurve(new XYZ({ x: 0, y: 5, z: 0 })) });
+            const wire = createMockWire([edge1, edge2]);
+
+            const normal = GeometryUtils.normal(wire);
+
+            expect(normal.isEqualTo(XYZ.unitZ)).toBe(true);
+        });
+
+        test("should fall back to the curve normal when the first edge is closed", () => {
+            // Closed first edge: start === end => zero direction; the mock curve's
+            // basis conic axis (+Z) is the fallback normal.
+            const closedCurve = createMockEdgeCurve({ valueFn: () => XYZ.zero });
+            const edge1 = createMockEdge({ curve: closedCurve });
+            const edge2 = createMockEdge({ curve: xSegmentCurve() });
+            const wire = createMockWire([edge1, edge2]);
+
+            const normal = GeometryUtils.normal(wire);
+
+            expect(normal.isEqualTo(XYZ.unitZ)).toBe(true);
+        });
+
         test("should return the curve normal for an edge", () => {
             const normal = GeometryUtils.normal(createMockEdge());
 

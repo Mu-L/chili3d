@@ -190,12 +190,14 @@ export interface MockEdgeConfig {
  * `intersect` returns `intersectResult` (default: no intersections).
  */
 export function createMockEdge(config?: MockEdgeConfig): IEdge {
+    const curve = config?.curve ?? createMockEdgeCurve();
     const edge = {
         shapeType: ShapeTypes.edge,
-        curve: config?.curve ?? createMockEdgeCurve(),
+        curve,
         orientation: () => config?.orientation ?? "forward",
         isEqual: (other: IShape) => other === edge,
         intersect: () => config?.intersectResult ?? [],
+        ends: () => [curve.value(curve.firstParameter()), curve.value(curve.lastParameter())],
     } as unknown as IEdge;
     return edge;
 }

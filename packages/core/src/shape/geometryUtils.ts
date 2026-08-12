@@ -7,6 +7,14 @@ import { CurveUtils, type ICurve } from "./curve";
 import type { IEdge, IFace, IWire } from "./shape";
 import { ShapeTypes } from "./shapeType";
 
+const FACE_NORMAL_SAMPLE_UV: readonly [number, number][] = [
+    [0.5, 0.5],
+    [0.25, 0.25],
+    [0.75, 0.75],
+    [0.25, 0.75],
+    [0.75, 0.25],
+];
+
 export class GeometryUtils {
     static nearestPoint(wire: IWire, point: XYZ): { edge: IEdge; point: XYZ; parameter: number } {
         let minDistance = Number.MAX_VALUE;
@@ -32,7 +40,7 @@ export class GeometryUtils {
         }
         const vec = curve.dn(0, 1);
         if (vec.isParallelTo(XYZ.unitX)) return XYZ.unitZ;
-        return vec.cross(XYZ.unitX).normalize()!;
+        return vec.cross(XYZ.unitX).normalize() ?? XYZ.unitZ;
     }
 
     private static wireNormal(wire: IWire): XYZ {
@@ -42,21 +50,35 @@ export class GeometryUtils {
             return XYZ.unitZ;
         } else if (edges.length === 1) {
             return GeometryUtils.curveNormal(edges[0].curve);
-        } else {
-            const curve1 = edges[0].curve;
-            const curve2 = edges[1].curve;
-            const p1 = curve1.value(curve1.firstParameter());
-            const p2 = curve1.value(curve1.lastParameter());
-            const p3 = curve2.value(curve2.firstParameter());
-            const p4 = curve2.value(curve2.lastParameter());
-            const v1 = p2.sub(p1);
-            const v2 = p4.sub(p3);
-            const normal = v1.cross(v2).normalize()!;
-            if (wire.orientation() === "reversed") {
-                return normal.reverse();
-            }
-            return normal;
         }
+
+        // The first edge pair can be degenerate (parallel edges, a closed first edge,
+        // zero-length endpoints), so try every adjacent pair and fall back to the
+        // first edge's curve normal (e.g. the axis of a circular edge).
+        const normal = GeometryUtils.wireNormalFromEdges(edges) ?? GeometryUtils.curveNormal(edges[0].curve);
+        if (wire.orientation() === "reversed") {
+            return normal.reverse();
+        }
+        return normal;
+    }
+
+    private static wireNormalFromEdges(edges: IEdge[]): XYZ | undefined {
+        const spans = edges.map((edge) => {
+            const [start, end] = edge.ends();
+            return { start, direction: end.sub(start) };
+        });
+
+        for (let i = 0; i < spans.length - 1; i++) {
+            const normal = spans[i].direction.cross(spans[i + 1].direction).normalize();
+            if (normal) return normal;
+
+            // Parallel but distinct lines still define a plane: use the vector
+            // connecting their start points as the second direction.
+            const between = spans[i + 1].start.sub(spans[i].start);
+            const planeNormal = spans[i].direction.cross(between).normalize();
+            if (planeNormal) return planeNormal;
+        }
+        return undefined;
     }
 
     static isCCW(normal: XYZ, wire: IWire): boolean {
@@ -85,7 +107,15 @@ export class GeometryUtils {
 
     static normal(shape: IFace | IWire | IEdge): XYZ {
         if (shape.shapeType === ShapeTypes.face) {
-            return (shape as IFace).normal(0.5, 0.5)[1].normalize()!;
+            // The UV midpoint can be a surface singularity (zero normal), sample a few
+            // fallback parameters before giving up.
+            const face = shape as IFace;
+            for (const [u, v] of FACE_NORMAL_SAMPLE_UV) {
+                const normal = face.normal(u, v)[1].normalize();
+                if (normal) return normal;
+            }
+            console.warn("Cannot compute face normal, fallback to unitZ");
+            return XYZ.unitZ;
         }
 
         if (shape.shapeType === ShapeTypes.edge) {
