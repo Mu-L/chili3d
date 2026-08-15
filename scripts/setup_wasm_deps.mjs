@@ -46,7 +46,7 @@ const libs = [
     {
         name: "occt",
         url: "https://github.com/Open-Cascade-SAS/OCCT.git",
-        tag: "V8_0_0",
+        tag: "V8_0_1",
         dir: OCCT_DIR,
         actions: [],
         commands: [],

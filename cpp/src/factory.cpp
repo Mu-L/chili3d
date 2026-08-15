@@ -988,8 +988,11 @@ public:
         boolOperater.SetTools(toolsList);
         boolOperater.SetFuzzyValue(1e-6);
         boolOperater.Build();
+
         if (!boolOperater.IsDone()) {
-            return ShapeResult { TopoDS_Shape(), false, "Failed to build boolean operation" };
+            std::ostringstream oss;
+            boolOperater.DumpErrors(oss);
+            return ShapeResult { TopoDS_Shape(), false, oss.str() };
         }
 
         return ShapeResult { boolOperater.Shape(), true, "" };

@@ -34,7 +34,7 @@ export abstract class BooleanOperate extends MultistepCommand {
         Transaction.execute(this.document, "boolean", () => {
             const booleanShape = this.booleanOperate(this.stepDatas[1].shapes);
             if (!booleanShape.isOk) {
-                PubSub.default.pub("showToast", "error.default:{0}", "boolean failed");
+                PubSub.default.pub("showToast", "error.default:{0}", booleanShape.error);
                 return;
             }
             const node = new BooleanNode({ document: this.document, booleanShape: booleanShape.value });
@@ -121,7 +121,7 @@ export abstract class BooleanOperate extends MultistepCommand {
         const booleanShape = this.booleanOperate(selected);
         if (!booleanShape.isOk) {
             nodeVisual.visible = true;
-            PubSub.default.pub("showToast", "error.default:{0}", "boolean failed");
+            PubSub.default.pub("showToast", "error.default:{0}", booleanShape.error);
             return;
         }
         this.disposeStack.add(booleanShape.value);

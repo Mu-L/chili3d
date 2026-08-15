@@ -55,8 +55,8 @@ function convertShapeResult<P extends unknown[] = unknown[]>(
     let result: ShapeResult;
     try {
         result = factory(...params);
-    } catch {
-        return Result.err(errorString);
+    } catch (err) {
+        return Result.err(`${errorString}: ${err}`);
     }
 
     let res: Result<IShape, string>;
@@ -521,11 +521,15 @@ export class ShapeFactory implements IShapeFactory {
         }
 
         const occShape = fused.value as OccShape;
-        return convertShapeResult(
+        const simplified = convertShapeResult(
             wasm.ShapeFactory.simplifyShape,
-            [occShape.shape, true, true, [], 1e-6, 1e-7],
+            [occShape.shape, true, true, [], 1e-5, 1e-6],
             "SimplifyShape Error",
         );
+        if (!simplified.isOk) {
+            return fused;
+        }
+        return simplified;
     }
     sewing(shapes: IShape[]): Result<IShape> {
         const occShapes = ensureOccShape(shapes);
@@ -596,8 +600,8 @@ export class ShapeFactory implements IShapeFactory {
         removeEdges: boolean,
         removeFaces: boolean,
         keepShapes: IShape[],
-        linearTolerance: number = 1e-6,
-        angleTolerance: number = 1e-7,
+        linearTolerance: number = 1e-5,
+        angleTolerance: number = 1e-6,
     ): Result<IShape> {
         return convertShapeResult(
             wasm.ShapeFactory.simplifyShape,
