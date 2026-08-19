@@ -41,6 +41,22 @@ describe("STEP import", () => {
         expect(result.isOk).toBe(false);
     });
 
+    test("should import STEP containing a comment longer than the OCCT lexer buffer", () => {
+        const box = createBox(factory, 10, 20, 30);
+        const stepStr = converter.convertToSTEP(box).value;
+        // OCCT's STEP lexer cannot match tokens longer than its 16KB input buffer,
+        // so a long comment line must be stripped before reading
+        const longComment = `/*${"x".repeat(32 * 1024)}*/`;
+        const stepWithComment = stepStr.replace("ISO-10303-21;", `ISO-10303-21;\n${longComment}`);
+
+        const stepBytes = new TextEncoder().encode(stepWithComment);
+        const doc = createMockDocument();
+        const result = converter.convertFromSTEP(doc, stepBytes);
+        expect(result.isOk).toBe(true);
+        const node = result.value.firstChild;
+        expect(node).toBeInstanceOf(EditableShapeNode);
+    });
+
     test("should handle cylinder STEP import", () => {
         const cyl = factory.cylinder(XYZ.unitZ, XYZ.zero, 5, 20).value;
         const stepStr = converter.convertToSTEP(cyl).value;
