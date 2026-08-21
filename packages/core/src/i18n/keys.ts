@@ -45,6 +45,7 @@ export const I18N_KEYS = [
     "command.boolean.join",
     "command.convert.curveProjection",
     "command.convert.fuse",
+    "command.convert.toCompound",
     "command.convert.toFace",
     "command.convert.toShell",
     "command.convert.toSolid",

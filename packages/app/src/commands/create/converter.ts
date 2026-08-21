@@ -168,3 +168,25 @@ export class ConvertToSolid extends ConvertCommand {
         return Result.ok(solid);
     }
 }
+
+@command({
+    key: "convert.toCompound",
+    icon: "icon-compound",
+})
+export class ConvertToCompound extends ConvertCommand {
+    protected override shapeFilter(): IShapeFilter {
+        return {
+            allow: () => true,
+        };
+    }
+
+    protected override create(document: IDocument, models: ShapeNode[]): Result<GeometryNode> {
+        const shapes = models.map((x) => x.shape.value.transformedMul(x.worldTransform()));
+        const shape = shapeFactory.combine(shapes);
+        shapes.forEach((x) => x.dispose());
+        if (!shape.isOk) return Result.err(shape.error);
+
+        const compound = new EditableShapeNode({ document, name: "compound", shape });
+        return Result.ok(compound);
+    }
+}

@@ -60,7 +60,11 @@ export const DefaultRibbon: RibbonTabProfile[] = [
             },
             {
                 groupName: "ribbon.group.converter",
-                items: ["convert.toWire", ["convert.toFace", "convert.toShell", "convert.toSolid"]],
+                items: [
+                    "convert.toWire",
+                    "convert.toCompound",
+                    ["convert.toFace", "convert.toShell", "convert.toSolid"],
+                ],
             },
             {
                 groupName: "ribbon.group.boolean",

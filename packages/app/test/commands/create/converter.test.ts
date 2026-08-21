@@ -5,6 +5,7 @@ import { type IDocument, Matrix4, type ShapeNode, ShapeTypes, type VisualNode } 
 import { afterAll, beforeAll, describe, expect, test } from "@rstest/core";
 import { WireNode } from "../../../src/bodys/wire";
 import {
+    ConvertToCompound,
     ConvertToFace,
     ConvertToShell,
     ConvertToSolid,
@@ -183,6 +184,40 @@ describe("ConvertToSolid", () => {
             const filter = (cmd as any).shapeFilter();
             const models = (cmd as any)._getSelectedModels(doc, filter);
             expect(models).toHaveLength(0);
+        });
+    });
+});
+
+describe("ConvertToCompound", () => {
+    test("should have command metadata", () => {
+        const data = (ConvertToCompound as any).prototype.data;
+        expect(data).not.toBeNull();
+        expect(data.key).toBe("convert.toCompound");
+        expect(data.icon).toBe("icon-group");
+    });
+
+    test("shapeFilter should allow any shape type", () => {
+        const cmd = new ConvertToCompound();
+        const filter = (cmd as any).shapeFilter();
+        expect(filter.allow({ shapeType: ShapeTypes.edge } as any)).toBe(true);
+        expect(filter.allow({ shapeType: ShapeTypes.wire } as any)).toBe(true);
+        expect(filter.allow({ shapeType: ShapeTypes.face } as any)).toBe(true);
+        expect(filter.allow({ shapeType: ShapeTypes.shell } as any)).toBe(true);
+        expect(filter.allow({ shapeType: ShapeTypes.solid } as any)).toBe(true);
+    });
+
+    describe("_getSelectedModels", () => {
+        test("should keep nodes of any shape type", () => {
+            const cmd = new ConvertToCompound();
+            const { doc } = wireCommand(cmd);
+            const node = {
+                shape: { value: mockShape({ shapeType: ShapeTypes.solid }) },
+                transform: Matrix4.identity(),
+            };
+            stubDocumentSelection(doc, [node as unknown as VisualNode]);
+            const filter = (cmd as any).shapeFilter();
+            const models = (cmd as any)._getSelectedModels(doc, filter);
+            expect(models).toHaveLength(1);
         });
     });
 });

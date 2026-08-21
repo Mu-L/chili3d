@@ -35,6 +35,7 @@ export default {
         "command.boolean.join": "Mesclar",
         "command.convert.curveProjection": "Projeção",
         "command.convert.fuse": "Fundir",
+        "command.convert.toCompound": "Para Composto",
         "command.convert.toFace": "Para Face",
         "command.convert.toShell": "Para Casca",
         "command.convert.toSolid": "Para Sólido",

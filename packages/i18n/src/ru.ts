@@ -52,6 +52,7 @@ export default {
         "command.boolean.join": "Объединение",
         "command.convert.curveProjection": "Проекция",
         "command.convert.fuse": "Сплавить",
+        "command.convert.toCompound": "Сгруппировать",
         "command.convert.toFace": "Столкнуть",
         "command.convert.toShell": "Обвести",
         "command.convert.toSolid": "Отвердить",

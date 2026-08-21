@@ -50,6 +50,7 @@ export default {
         "command.boolean.join": "合并",
         "command.convert.curveProjection": "曲线投影",
         "command.convert.fuse": "融合",
+        "command.convert.toCompound": "转组合体",
         "command.convert.toFace": "转为面",
         "command.convert.toShell": "转为壳",
         "command.convert.toSolid": "转为体",

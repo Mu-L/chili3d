@@ -50,6 +50,7 @@ export default {
         "command.boolean.join": "Join",
         "command.convert.curveProjection": "Projection",
         "command.convert.fuse": "Fuse",
+        "command.convert.toCompound": "To Compound",
         "command.convert.toFace": "To Face",
         "command.convert.toShell": "To Shell",
         "command.convert.toSolid": "To Solid",
