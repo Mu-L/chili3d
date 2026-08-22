@@ -35,6 +35,7 @@ export const defaultEdgeMaterial = new LineMaterial({
 VisualConfig.onPropertyChanged((property: keyof VisualItemConfig) => {
     if (property === "defaultEdgeColor") {
         defaultEdgeMaterial.color.set(VisualConfig.defaultEdgeColor);
+        defaultVertexMaterial.color.set(VisualConfig.defaultEdgeColor);
     }
 });
 

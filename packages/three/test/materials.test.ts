@@ -114,5 +114,18 @@ describe("materials", () => {
             }
             expect(defaultEdgeMaterial.color.getHex()).toBe(originalColor);
         });
+
+        test("defaultVertexMaterial color updates when VisualConfig.defaultEdgeColor changes", () => {
+            const originalColor = VisualConfig.defaultEdgeColor;
+            const testColor = 0xabcdef;
+
+            try {
+                VisualConfig.defaultEdgeColor = testColor;
+                expect(defaultVertexMaterial.color.getHex()).toBe(testColor);
+            } finally {
+                VisualConfig.defaultEdgeColor = originalColor;
+            }
+            expect(defaultVertexMaterial.color.getHex()).toBe(originalColor);
+        });
     });
 });
