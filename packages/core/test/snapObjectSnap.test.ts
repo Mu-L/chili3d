@@ -278,10 +278,25 @@ describe("ObjectSnap", () => {
             expect(result!.type).toBe("middle");
         });
 
+        test("should detect vertex snap point on a standalone vertex shape", () => {
+            // Regression: a drawn point (create.point) is a vertex-only shape.
+            // It must route to snapOnShape even when no edge is detected.
+            Config.instance.snapType = ObjectSnapTypes.vertex as ObjectSnapType;
+
+            const vertexShape = createVertexShapeData(XYZ.zero);
+            const view = createMockView({
+                detectShapes: () => [vertexShape],
+            });
+            const snap = new ObjectSnap(ObjectSnapTypes.vertex);
+            const data = createMouseAndDetected(view, { shapes: [vertexShape] });
+
+            const result = snap.snap(data);
+            expect(result).not.toBeNull();
+            expect(result!.type).toBe("vertex");
+            expect(result!.point).toEqual(XYZ.zero);
+        });
+
         test("should detect vertex snap point when routed via edge shapes", () => {
-            // snap() routes to snapOnShape only when shapes contain an edge.
-            // Vertex-only shapes go through snapeInvisible, so vertex snap needs
-            // an edge alongside it to reach getFeaturePoints.
             Config.instance.snapType = ObjectSnapTypes.vertex as ObjectSnapType;
 
             const vertexShape = createVertexShapeData(XYZ.zero);
