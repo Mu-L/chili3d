@@ -193,7 +193,7 @@ describe("ConvertToCompound", () => {
         const data = (ConvertToCompound as any).prototype.data;
         expect(data).not.toBeNull();
         expect(data.key).toBe("convert.toCompound");
-        expect(data.icon).toBe("icon-group");
+        expect(data.icon).toBe("icon-compound");
     });
 
     test("shapeFilter should allow any shape type", () => {
